@@ -1,4 +1,4 @@
-import { db } from './db.js';
+import { db } from '../config/db.js';
 
 // Helper to get dates relative to today
 const getDateAgo = (days: number): string => {

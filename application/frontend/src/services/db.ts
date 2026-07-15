@@ -27,7 +27,7 @@ const DEFAULT_STORE_INFO: StoreInfo = {
   nameEn: 'Happy Star Supermarket',
   vatNumber: '300078965400003', // 15-digit Saudi VAT number
   phone: '+966 50 123 4567',
-  address: 'الرياض، المملكة العربية السعودية',
+  address: 'Kingdom Saudi Arabia, Riyadh',
 };
 
 // Seed Users

@@ -26,12 +26,9 @@ import {
   Upload
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { dbService } from './services/db';
-import type { StoreInfo } from './services/db';
+import { apiService } from './services/api';
+import type { StoreInfo } from './services/api';
 import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod } from './types';
-
-// Seeding DB initially
-dbService.init();
 
 export default function App() {
   // Localization & Theme state
@@ -46,9 +43,10 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [currentUser, setCurrentUser] = useState<AppUser>(dbService.getCurrentUser());
-  const [storeInfo, setStoreInfo] = useState<StoreInfo>(dbService.getStoreInfo());
-  const [usersList] = useState<AppUser[]>(dbService.getUsers());
+  const [currentUser, setCurrentUser] = useState<AppUser>(apiService.getCurrentUser());
+  const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
+  const [usersList, setUsersList] = useState<AppUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -85,21 +83,35 @@ export default function App() {
   // Barcode input focus ref
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync data with localStorage DB
-  const refreshData = () => {
-    setProducts(dbService.getProducts());
-    setInvoices(dbService.getInvoices());
-    setSuppliers(dbService.getSuppliers());
-    setPurchaseOrders(dbService.getPurchaseOrders());
-    setLogs(dbService.getAuditLogs());
-    setStoreInfo(dbService.getStoreInfo());
-    setCurrentUser(dbService.getCurrentUser());
+  // Fetch all data from the backend API
+  const refreshData = async () => {
+    try {
+      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData] = await Promise.all([
+        apiService.getProducts(),
+        apiService.getInvoices(),
+        apiService.getSuppliers(),
+        apiService.getPurchaseOrders(),
+        apiService.getAuditLogs(),
+        apiService.getStoreInfo(),
+        apiService.getUsers(),
+      ]);
+      setProducts(productsData);
+      setInvoices(invoicesData);
+      setSuppliers(suppliersData);
+      setPurchaseOrders(posData);
+      setLogs(logsData);
+      if (storeData) setStoreInfo(storeData);
+      setUsersList(usersData);
+    } catch (err) {
+      console.error('Failed to refresh data from API:', err);
+    }
   };
 
   useEffect(() => {
     const initApp = async () => {
-      await dbService.syncWithBackend();
-      refreshData();
+      setIsLoading(true);
+      await refreshData();
+      setIsLoading(false);
     };
     initApp();
   }, []);
@@ -165,12 +177,12 @@ export default function App() {
   const getTrans = (key: keyof typeof t) => t[key][lang];
 
   // Log in as a different user role
-  const handleUserChange = (userId: string) => {
+  const handleUserChange = async (userId: string) => {
     const targetUser = usersList.find(u => u.id === userId);
     if (targetUser) {
-      dbService.setCurrentUser(targetUser);
+      await apiService.switchUser(targetUser);
       setCurrentUser(targetUser);
-      refreshData();
+      await refreshData();
     }
   };
 
@@ -298,13 +310,13 @@ export default function App() {
       cardAmount: paymentMethod === 'card' ? total : paymentMethod === 'split' ? (total - parsedCash) : 0,
     };
 
-    const newInvoice = await dbService.createInvoice(checkoutItems, paymentMethod, details);
+    const newInvoice = await apiService.createInvoice(checkoutItems, paymentMethod, details);
     
     setActiveInvoice(newInvoice);
     setCart([]);
     setIsCheckoutOpen(false);
     setCashReceived('');
-    refreshData();
+    await refreshData();
   };
 
   // ----------------------------------------------------
@@ -319,10 +331,10 @@ export default function App() {
       return;
     }
 
-    await dbService.saveProduct(editingProduct);
+    await apiService.saveProduct(editingProduct);
     setIsProductModalOpen(false);
     setEditingProduct(null);
-    refreshData();
+    await refreshData();
   };
 
   const handleProductDelete = async (id: string) => {
@@ -331,8 +343,8 @@ export default function App() {
       return;
     }
     if (confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذا المنتج؟' : 'Are you sure you want to delete this product?')) {
-      await dbService.deleteProduct(id);
-      refreshData();
+      await apiService.deleteProduct(id);
+      await refreshData();
     }
   };
 
@@ -341,18 +353,20 @@ export default function App() {
       alert(lang === 'ar' ? 'الرجاء إدخال بيانات CSV أولاً' : 'Please input CSV data first');
       return;
     }
-    const result = await dbService.importProductsFromCSV(csvFileContent);
-    if (result.errors.length > 0) {
-      alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \n' : 'Imported with errors: \n') + result.errors.slice(0, 5).join('\n'));
-    } else {
+    const { products: parsedProducts, errors } = apiService.parseCSV(csvFileContent);
+    if (errors.length > 0) {
+      alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \n' : 'Imported with errors: \n') + errors.slice(0, 5).join('\n'));
+    }
+    if (parsedProducts.length > 0) {
+      const result = await apiService.importProductsFromCSV(parsedProducts);
       alert(lang === 'ar' ? `تم استيراد ${result.successCount} منتج بنجاح!` : `Successfully imported ${result.successCount} products!`);
     }
     setCsvFileContent('');
-    refreshData();
+    await refreshData();
   };
 
   const handleCsvExport = () => {
-    const csv = dbService.exportProductsToCSV();
+    const csv = apiService.exportProductsToCSV(products);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -377,23 +391,23 @@ export default function App() {
       balance: editingSupplier?.balance || 0,
     };
 
-    await dbService.saveSupplier(supplier);
+    await apiService.saveSupplier(supplier);
     setIsSupplierModalOpen(false);
     setEditingSupplier(null);
-    refreshData();
+    await refreshData();
   };
 
   const handleSupplierDelete = async (id: string) => {
     if (confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذا المورد؟' : 'Are you sure you want to delete this supplier?')) {
-      await dbService.deleteSupplier(id);
-      refreshData();
+      await apiService.deleteSupplier(id);
+      await refreshData();
     }
   };
 
   const handleSupplierPayoff = async (id: string, amount: number) => {
     if (amount <= 0) return;
-    await dbService.paySupplier(id, amount);
-    refreshData();
+    await apiService.paySupplier(id, amount);
+    await refreshData();
   };
 
   const addToPoCart = (product: Product) => {
@@ -439,16 +453,16 @@ export default function App() {
       status: 'pending',
     };
 
-    await dbService.savePurchaseOrder(newPo);
+    await apiService.savePurchaseOrder(newPo);
     setPoItems([]);
     setSelectedPoSupplier('');
     setIsPoModalOpen(false);
-    refreshData();
+    await refreshData();
   };
 
   const handlePoReceive = async (poId: string) => {
-    await dbService.receivePurchaseOrder(poId);
-    refreshData();
+    await apiService.receivePurchaseOrder(poId);
+    await refreshData();
   };
 
   // ----------------------------------------------------
@@ -565,6 +579,17 @@ export default function App() {
     return diffDays <= 7; // Alert if within 7 days
   });
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+        <div className="text-indigo-400 font-medium">
+          {lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-indigo-500 selection:text-white`}>
       {/* Top Header */}
@@ -575,10 +600,10 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-              {lang === 'ar' ? storeInfo.nameAr : storeInfo.nameEn}
+              {lang === 'ar' ? storeInfo?.nameAr : storeInfo?.nameEn}
             </h1>
             <p className="text-xs text-slate-400 font-mono">
-              VAT: {storeInfo.vatNumber}
+              VAT: {storeInfo?.vatNumber}
             </p>
           </div>
         </div>
@@ -1747,7 +1772,7 @@ export default function App() {
                       phone: formData.get('phone') as string,
                       address: formData.get('address') as string,
                     };
-                    await dbService.updateStoreInfo(info);
+                    await apiService.updateStoreInfo(info);
                     setStoreInfo(info);
                     alert(lang === 'ar' ? 'تم حفظ التعديلات بنجاح!' : 'Store configuration updated successfully!');
                   }}
@@ -1759,7 +1784,7 @@ export default function App() {
                       <input
                         type="text"
                         name="nameAr"
-                        defaultValue={storeInfo.nameAr}
+                        defaultValue={storeInfo?.nameAr || ''}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -1768,7 +1793,7 @@ export default function App() {
                       <input
                         type="text"
                         name="nameEn"
-                        defaultValue={storeInfo.nameEn}
+                        defaultValue={storeInfo?.nameEn || ''}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -1781,7 +1806,7 @@ export default function App() {
                         type="text"
                         name="vatNumber"
                         maxLength={15}
-                        defaultValue={storeInfo.vatNumber}
+                        defaultValue={storeInfo?.vatNumber || ''}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -1790,7 +1815,7 @@ export default function App() {
                       <input
                         type="text"
                         name="phone"
-                        defaultValue={storeInfo.phone}
+                        defaultValue={storeInfo?.phone || ''}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -1801,7 +1826,7 @@ export default function App() {
                     <input
                       type="text"
                       name="address"
-                      defaultValue={storeInfo.address}
+                      defaultValue={storeInfo?.address || ''}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
@@ -2316,10 +2341,10 @@ export default function App() {
             <div id="printable-receipt" className="font-sans text-xs space-y-4 leading-normal p-2 text-right dir-rtl">
               {/* Receipt Header */}
               <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-300">
-                <h3 className="font-extrabold text-base">{storeInfo.nameAr}</h3>
-                <h4 className="text-[11px] text-slate-600 font-medium">{storeInfo.nameEn}</h4>
-                <p className="text-[10px] text-slate-500">{storeInfo.address}</p>
-                <p className="text-[10px] text-slate-500 font-mono">{storeInfo.phone}</p>
+                <h3 className="font-extrabold text-base">{storeInfo?.nameAr}</h3>
+                <h4 className="text-[11px] text-slate-600 font-medium">{storeInfo?.nameEn}</h4>
+                <p className="text-[10px] text-slate-500">{storeInfo?.address}</p>
+                <p className="text-[10px] text-slate-500 font-mono">{storeInfo?.phone}</p>
                 <div className="bg-slate-100 py-1 px-2 rounded mt-2 inline-block font-extrabold text-[10px] text-slate-800">
                   {lang === 'ar' ? 'فاتورة ضريبية مبسطة' : 'Simplified Tax Invoice'}
                 </div>
@@ -2329,7 +2354,7 @@ export default function App() {
               <div className="space-y-1 border-b border-dashed border-slate-300 pb-3 font-mono text-[10px] text-slate-600">
                 <div className="flex justify-between">
                   <span className="font-bold">{lang === 'ar' ? 'الرقم الضريبي للمتجر:' : 'Store VAT Number:'}</span>
-                  <span>{storeInfo.vatNumber}</span>
+                  <span>{storeInfo?.vatNumber}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-bold">{lang === 'ar' ? 'رقم الفاتورة الموحد:' : 'Invoice No:'}</span>

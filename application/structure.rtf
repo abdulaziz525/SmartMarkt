@@ -1,0 +1,46 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \uc0\u55357 \u56513  accounting-app/                   # Root project directory\
+\uc0\u9474 \
+\uc0\u9500 \u9472 \u9472  \u55357 \u56513  backend/                     # Backend application (Server & Database)\
+\uc0\u9474    \u9500 \u9472 \u9472  \u55357 \u56513  src/\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  config/              # Database connection and security configurations\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  controllers/         # Handles incoming HTTP requests and sends responses\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  models/              # Database schemas and data blueprints (e.g., Invoice, User)\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  middlewares/         # Route guards (e.g., Auth, Role verification)\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  services/            # Core business logic (e.g., Tax calculations, Ledger entries)\
+\uc0\u9474    \u9474    \u9492 \u9472 \u9472  app.js                  # Main server entry point\
+\uc0\u9474    \u9500 \u9472 \u9472  .env                        # Environment variables (Database URI, JWT secret keys)\
+\uc0\u9474    \u9492 \u9472 \u9472  package.json                # Backend dependencies (Express, Mongoose, etc.)\
+\uc0\u9474 \
+\uc0\u9500 \u9472 \u9472  \u55357 \u56513  frontend/                    # Frontend application (Vite + React/Vue)\
+\uc0\u9474    \u9500 \u9472 \u9472  \u55357 \u56513  public/                  # Static assets served directly (Favicon, Brand Assets)\
+\uc0\u9474    \u9474    \u9492 \u9472 \u9472  favicon.ico\
+\uc0\u9474    \u9500 \u9472 \u9472  \u55357 \u56513  src/\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  assets/              # Raw images, global styles, and web fonts\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  components/          # Shared/Reusable UI building blocks\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  ui/              # Atom components (e.g., Button, Input, Modal)\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  DataTable.jsx       # Dynamic table used for invoices, ledgers, logs\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  features/            # Feature-driven modules (Domain specific)\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  auth/            # Login, registration, and user session management\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  \u55357 \u56513  invoices/        # Component structures dedicated only to invoice handling\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  hooks/               # Custom global React/Vue state hooks\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  services/            # API integration layer\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  api.js              # Base Axios instance configured for server communication\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  store/               # Global state management files (Zustand / Redux)\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  \u55357 \u56513  utils/               # Shared helper functions (Currency/Date formatters)\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  App.jsx                 # Main application component & application routes\
+\uc0\u9474    \u9474    \u9492 \u9472 \u9472  main.jsx                # Vite entry point to mount DOM elements\
+\uc0\u9474    \u9500 \u9472 \u9472  .env                        # Frontend environment variables (VITE_API_URL)\
+\uc0\u9474    \u9500 \u9472 \u9472  index.html                  # Core HTML file (Root placement for Vite optimization)\
+\uc0\u9474    \u9500 \u9472 \u9472  vite.config.js              # Vite server settings, proxies, and plugins\
+\uc0\u9474    \u9492 \u9472 \u9472  package.json                # Frontend dependencies (React, Axios, Tailwind CSS)\
+\uc0\u9474 \
+\uc0\u9500 \u9472 \u9472  package.json                    # Root package file for multi-workspace script executions\
+\uc0\u9492 \u9472 \u9472  README.md                       # Documentation on installing and launching the system\
+}

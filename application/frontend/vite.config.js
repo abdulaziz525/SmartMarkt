@@ -11,6 +11,14 @@ export default defineConfig({
 
   server: {
     // Expose the development server to the local network
-    host: true
-  }
+    host: true,
+
+    // Proxy API requests to the backend during development
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
 })

@@ -4,6 +4,28 @@ SmartMarkt is a professional, high-performance Point of Sale (POS) and accountin
 
 ---
 
+## 🏗️ Architecture
+
+SmartMarkt uses a clean **client-server architecture** with a fully separated database layer:
+
+```
+┌─────────────────────┐         ┌─────────────────────────────┐
+│   Vite + React      │  HTTP   │   Express.js Backend        │
+│   (Frontend)        │────────▶│   (server/)                 │
+│                     │  /api/* │                             │
+│   • UI only         │◀────────│   • REST API routes         │
+│   • No DB imports   │  JSON   │   • Knex query builder      │
+│   • Calls /api/*    │         │   • MySQL / PostgreSQL      │
+└─────────────────────┘         │   • Auto-migrations + seed  │
+                                └─────────────────────────────┘
+```
+
+- **Frontend** (`src/`): React + TypeScript + Tailwind. Purely handles UI and calls the backend via REST API. Zero database dependencies.
+- **Backend** (`server/`): Express.js + Knex.js. Handles all database operations, business logic, and data access.
+- **API Boundary**: All data flows through `/api/*` REST endpoints. The Vite dev server proxies these requests to the backend during development.
+
+---
+
 ## 🌟 Key Features
 
 1. **Point of Sale (POS)**
@@ -22,34 +44,29 @@ SmartMarkt is a professional, high-performance Point of Sale (POS) and accountin
      - VAT Total (15%)
    - Base64-encoded QR graphics instantly readable by ZATCA auditing tools.
 
-3. **Hybrid Storage Engine (Online DB + Offline localStorage)**
-   - When the backend API server is running, all data is persisted to **MySQL** or **PostgreSQL**.
-   - If the API is unreachable, the frontend automatically falls back to `localStorage` for full offline operation.
-   - On reconnection, data is synchronized from the database to the local cache.
-
-4. **Inventory & Warehouse Management**
+3. **Inventory & Warehouse Management**
    - Full CRUD operations on products.
    - Intelligent stock warnings: Low-stock notifications and alerts for items nearing expiration.
    - Bulk import and export capabilities via CSV format.
 
-5. **Suppliers & Purchasing (PO)**
+4. **Suppliers & Purchasing (PO)**
    - Manage multiple supplier credit lines.
    - Purchase orders (PO) tracking.
    - Receiving shipments automatically calculates cost averages, updates stock counts, and increments accounts payable.
 
-6. **Reports & Ledger Accounts**
+5. **Reports & Ledger Accounts**
    - Tracks metrics: Gross Sales, COGS (Cost of Goods Sold), VAT Collected, and Net Profits.
    - Detailed transaction journal with breakdown per invoice.
 
-7. **Audit & Safety Logs**
+6. **Audit & Safety Logs**
    - Immutable audit trail recording every critical action (POS sales, stock edits, pricing updates, supplier payments) alongside the timestamp and operator details.
 
-8. **Multi-Role User Profiles**
+7. **Multi-Role User Profiles**
    - Instantly switch between Cashier, Manager, and Owner roles to see permission restrictions in action.
 
 ---
 
-## 🛠️ Tech Stack & Architecture
+## 🛠️ Tech Stack
 
 - **Frontend Framework**: React 19 + TypeScript + Vite
 - **Styling**: Tailwind CSS v4 (responsive utility classes with full RTL/LTR flex alignment)
@@ -61,66 +78,97 @@ SmartMarkt is a professional, high-performance Point of Sale (POS) and accountin
 
 ---
 
-## 🚀 How to Run locally
+## 🚀 How to Run Locally
 
-### Frontend Only (Offline / localStorage mode)
+> **Important**: The backend server is **required**. The frontend communicates with it via REST API for all data operations.
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+### 1. Install Dependencies
 
-2. **Run Development Server**
-   ```bash
-   npm run dev
-   ```
+```bash
+# Frontend
+npm install
 
-3. **Build for Production**
-   ```bash
-   npm run build
-   ```
+# Backend
+cd server
+npm install
+cd ..
+```
 
-### With Database Backend (MySQL or PostgreSQL)
+### 2. Configure the Database
 
-1. **Install Backend Dependencies**
-   ```bash
-   cd server
-   npm install
-   ```
+```bash
+cp server/.env.example server/.env
+```
 
-2. **Configure Database Connection**
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `server/.env` with your database credentials:
-   ```env
-   # Use 'postgres' or 'mysql'
-   DB_TYPE=postgres
+Edit `server/.env` with your database credentials:
 
-   DB_HOST=127.0.0.1
-   DB_PORT=5432
-   DB_USER=postgres
-   DB_PASSWORD=password
-   DB_NAME=smartmarkt
-   PORT=3001
-   ```
+```env
+# Use 'postgres' or 'mysql'
+DB_TYPE=postgres
 
-3. **Create the Database**
-   - **PostgreSQL**: `createdb smartmarkt`
-   - **MySQL**: `mysql -u root -e "CREATE DATABASE smartmarkt;"`
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=password
+DB_NAME=smartmarkt
+PORT=3001
+```
 
-4. **Start the Backend API Server**
-   ```bash
-   cd server
-   npm run dev
-   ```
-   The server will auto-create all tables and seed demo data on first run.
+### 3. Create the Database
 
-5. **Start the Frontend (in a separate terminal)**
-   ```bash
-   npm run dev
-   ```
-   The frontend detects the running backend and reads/writes data to the database.
+- **PostgreSQL**: `createdb smartmarkt`
+- **MySQL**: `mysql -u root -e "CREATE DATABASE smartmarkt;"`
+
+### 4. Start Both Servers
+
+**Option A — Run both at once:**
+```bash
+npm run dev:all
+```
+
+**Option B — Run separately (recommended for development):**
+
+```bash
+# Terminal 1: Start the backend API server
+npm run dev:server
+# or: cd server && npm run dev
+
+# Terminal 2: Start the frontend dev server
+npm run dev
+```
+
+The backend auto-creates all tables and seeds demo data on first run.  
+The Vite dev server automatically proxies `/api/*` requests to `http://localhost:3001`.
+
+### 5. Build for Production
+
+```bash
+npm run build
+```
+
+The built frontend assets go to `dist/`. In production, configure your web server or reverse proxy to forward `/api/*` requests to the backend, or set the `VITE_API_URL` environment variable at build time.
+
+---
+
+## 🔧 Environment Variables
+
+### Frontend (`/.env`)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API base URL | `/api` (uses Vite proxy in dev) |
+
+### Backend (`server/.env`)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DB_TYPE` | Database engine: `postgres` or `mysql` | `postgres` |
+| `DB_HOST` | Database host | `127.0.0.1` |
+| `DB_PORT` | Database port | `5432` (PG) / `3306` (MySQL) |
+| `DB_USER` | Database user | `postgres` |
+| `DB_PASSWORD` | Database password | _(empty)_ |
+| `DB_NAME` | Database name | `smartmarkt` |
+| `PORT` | Backend server port | `3001` |
 
 ---
 
