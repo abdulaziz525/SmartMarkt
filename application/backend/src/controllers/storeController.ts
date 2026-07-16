@@ -15,7 +15,7 @@ router.get('/store-info', async (req, res) => {
 
 router.put('/store-info', async (req, res) => {
   try {
-    const { nameAr, nameEn, vatNumber, phone, address, currentUser } = req.body;
+    const { nameAr, nameEn, vatNumber, phone, address} = req.body;
     
     const existing = await db('store_info').first();
     if (existing) {
@@ -24,11 +24,11 @@ router.put('/store-info', async (req, res) => {
       await db('store_info').insert({ nameAr, nameEn, vatNumber, phone, address });
     }
 
-    if (currentUser) {
+    if (req.user) {
       await logAudit(
-        currentUser.id,
-        currentUser.nameAr,
-        currentUser.role,
+        req.user.id,
+        req.user.nameAr,
+        req.user.role,
         'STORE_INFO_UPDATE',
         `Updated store name: ${nameAr}, VAT: ${vatNumber}`
       );

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { apiService } from './services/api';
+import { LoginPage } from './features/auth/LoginPage';
 import type { StoreInfo } from './services/api';
 import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod } from './types';
 
@@ -43,7 +44,9 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [currentUser, setCurrentUser] = useState<AppUser>(apiService.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<AppUser>({} as AppUser);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [usersList, setUsersList] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,6 +85,22 @@ export default function App() {
 
   // Barcode input focus ref
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Verify Auth on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await apiService.verifyAuth();
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+      } catch (err) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
 
   // Fetch all data from the backend API
   const refreshData = async () => {
@@ -176,15 +195,7 @@ export default function App() {
 
   const getTrans = (key: keyof typeof t) => t[key][lang];
 
-  // Log in as a different user role
-  const handleUserChange = async (userId: string) => {
-    const targetUser = usersList.find(u => u.id === userId);
-    if (targetUser) {
-      await apiService.switchUser(targetUser);
-      setCurrentUser(targetUser);
-      await refreshData();
-    }
-  };
+  
 
   // Check if role is authorized
   const hasAccess = (requiredRoles: UserRole[]): boolean => {
@@ -590,6 +601,24 @@ export default function App() {
     );
   }
 
+  if (isAuthLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-900 text-slate-200">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
+          <p className="animate-pulse">{lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={() => {
+      setIsAuthenticated(true);
+      window.location.reload();
+    }} />;
+  }
+
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-indigo-500 selection:text-white`}>
       {/* Top Header */}
@@ -623,20 +652,17 @@ export default function App() {
           )}
 
           {/* Profile Switcher */}
-          <div className="flex items-center bg-slate-800/80 rounded-lg p-1 border border-slate-700">
-            <User className="h-4 w-4 mx-2 text-slate-400" />
-            <select
-              value={currentUser.id}
-              onChange={(e) => handleUserChange(e.target.value)}
-              className="bg-transparent border-none text-xs text-slate-300 font-medium focus:ring-0 focus:outline-none pr-6 cursor-pointer"
-            >
-              {usersList.map(u => (
-                <option key={u.id} value={u.id} className="bg-slate-800 text-slate-100">
-                  {lang === 'ar' ? u.nameAr : u.nameEn} ({lang === 'ar' ? getTrans(u.role as keyof typeof t) : u.role.toUpperCase()})
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Logout Button */}
+          <button
+            onClick={async () => {
+              await apiService.logout();
+              setIsAuthenticated(false);
+              window.location.reload();
+            }}
+            className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+          >
+            <span>{lang === 'ar' ? 'تسجيل الخروج' : 'Logout'}</span>
+          </button>
 
           {/* Language Toggle */}
           <button

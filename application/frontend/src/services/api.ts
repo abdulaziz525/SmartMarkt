@@ -18,6 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
   if (!res.ok) {
@@ -43,21 +44,6 @@ function del<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined });
 }
 
-// ── Current User (client-side session only) ──────────────────────────
-
-const CURRENT_USER_KEY = 'sm_current_user';
-
-function getCurrentUser(): User {
-  const stored = localStorage.getItem(CURRENT_USER_KEY);
-  if (stored) return JSON.parse(stored);
-  // Fallback default — will be overwritten after first data load
-  return { id: '3', username: 'cashier', nameAr: 'خالد المحمد', nameEn: 'Khalid Al-Muhammed', role: 'cashier', active: true };
-}
-
-function setCurrentUser(user: User): void {
-  localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-}
-
 // ── API Service ──────────────────────────────────────────────────────
 
 export const apiService = {
@@ -72,7 +58,7 @@ export const apiService = {
   },
 
   async updateStoreInfo(info: StoreInfo): Promise<void> {
-    await put('/store-info', { ...info, currentUser: getCurrentUser() });
+    await put('/store-info', { ...info});
   },
 
   // ── Users ────────────────────────────────────────────────────────
@@ -80,13 +66,17 @@ export const apiService = {
     return get<User[]>('/users');
   },
 
-  // Current user (local session only)
-  getCurrentUser,
-  setCurrentUser,
+  // ── Authentication ─────────────────────────────────────────────────
+  login(username: string, password: string): Promise<User> {
+    return post<User>('/auth/login', { username, password });
+  },
 
-  async switchUser(user: User): Promise<void> {
-    setCurrentUser(user);
-    await this.logAudit('USER_LOGIN', `Switched active profile to ${user.nameEn} (${user.role})`);
+  logout(): Promise<{ message: string }> {
+    return post<{ message: string }>('/auth/logout', {});
+  },
+
+  verifyAuth(): Promise<User> {
+    return get<User>('/auth/verify');
   },
 
   // ── Products ─────────────────────────────────────────────────────
@@ -95,15 +85,15 @@ export const apiService = {
   },
 
   saveProduct(product: Product): Promise<Product> {
-    return post<Product>('/products', { product, currentUser: getCurrentUser() });
+    return post<Product>('/products', { product});
   },
 
   deleteProduct(id: string): Promise<{ success: boolean }> {
-    return del<{ success: boolean }>(`/products/${id}`, { currentUser: getCurrentUser() });
+    return del<{ success: boolean }>(`/products/${id}`, {});
   },
 
   importProductsFromCSV(productsList: Product[]): Promise<{ successCount: number }> {
-    return post<{ successCount: number }>('/products/import-csv', { productsList, currentUser: getCurrentUser() });
+    return post<{ successCount: number }>('/products/import-csv', { productsList});
   },
 
   // ── Invoices ─────────────────────────────────────────────────────
@@ -120,7 +110,6 @@ export const apiService = {
       items,
       paymentMethod,
       paymentDetails,
-      currentUser: getCurrentUser(),
     });
   },
 
@@ -130,15 +119,15 @@ export const apiService = {
   },
 
   saveSupplier(supplier: Supplier): Promise<Supplier> {
-    return post<Supplier>('/suppliers', { supplier, currentUser: getCurrentUser() });
+    return post<Supplier>('/suppliers', { supplier});
   },
 
   deleteSupplier(id: string): Promise<{ success: boolean }> {
-    return del<{ success: boolean }>(`/suppliers/${id}`, { currentUser: getCurrentUser() });
+    return del<{ success: boolean }>(`/suppliers/${id}`, {});
   },
 
   paySupplier(id: string, amount: number): Promise<{ success: boolean }> {
-    return post<{ success: boolean }>(`/suppliers/${id}/pay`, { amount, currentUser: getCurrentUser() });
+    return post<{ success: boolean }>(`/suppliers/${id}/pay`, { amount});
   },
 
   // ── Purchase Orders ──────────────────────────────────────────────
@@ -147,11 +136,11 @@ export const apiService = {
   },
 
   savePurchaseOrder(po: PurchaseOrder): Promise<PurchaseOrder> {
-    return post<PurchaseOrder>('/purchase-orders', { po, currentUser: getCurrentUser() });
+    return post<PurchaseOrder>('/purchase-orders', { po});
   },
 
   receivePurchaseOrder(id: string): Promise<{ success: boolean }> {
-    return post<{ success: boolean }>(`/purchase-orders/${id}/receive`, { currentUser: getCurrentUser() });
+    return post<{ success: boolean }>(`/purchase-orders/${id}/receive`, {});
   },
 
   // ── Audit Logs ───────────────────────────────────────────────────
@@ -160,7 +149,7 @@ export const apiService = {
   },
 
   logAudit(action: string, details: string): Promise<{ success: boolean }> {
-    return post<{ success: boolean }>('/audit-logs', { action, details, currentUser: getCurrentUser() });
+    return post<{ success: boolean }>('/audit-logs', { action, details});
   },
 
   // ── CSV Parsing (client-side utility) ────────────────────────────

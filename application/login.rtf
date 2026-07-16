@@ -1,0 +1,29 @@
+# Goal: Refactor App.tsx to use the new authentication system
+
+Hello Gemini, please refactor the main `frontend/src/App.tsx` component to implement the new authentication flow.
+
+The objective is to remove the old user-switching logic and replace it with a proper session check that conditionally renders either the `LoginPage` or the main application.
+
+### Detailed Steps:
+
+1.  **Authentication State:**
+    *   Create a new state to hold the current authenticated user: `const [currentUser, setCurrentUser] = useState<AppUser | null>(null);`
+    *   Create a state to track the initial authentication check: `const [isAuthLoading, setIsAuthLoading] = useState(true);`
+
+2.  **Session Verification on App Load:**
+    *   Use a `useEffect` hook that runs once when the app starts.
+    *   Inside the `useEffect`, call the `apiService.verifyAuth()` endpoint.
+    *   If the call is successful, set the `currentUser` with the returned user data.
+    *   If it fails (in a `catch` block), set `currentUser` to `null`.
+    *   In the `finally` block, set `isAuthLoading` to `false`.
+
+3.  **Conditional Rendering:**
+    *   While `isAuthLoading` is `true`, render a full-screen loading indicator (e.g., "Verifying session...").
+    *   If `isAuthLoading` is `false` and `currentUser` is `null`, render the `<LoginPage />` component. Pass a function `onLoginSuccess={setCurrentUser}` as a prop so the login page can update the app's state.
+    *   If `isAuthLoading` is `false` and `currentUser` is not `null`, render the main application layout (the header, sidebar, and main content).
+
+4.  **Update UI and Logic:**
+    *   Remove the old `handleUserChange` function and the user-switcher `<select>` dropdown from the header.
+    *   In its place, add the current user's name and a "Logout" button.
+    *   Create a `handleLogout` function that calls `apiService.logout()`, sets `currentUser` to `null`, and then could reload the page or simply let the conditional rendering show the login page.
+    *   Ensure all data-fetching and actions that relied on the old `currentUser` state now correctly use the new `currentUser` state. The `apiService` has already been updated to not send the user, so no changes should be needed there, but the frontend logic for permission checks (`hasAccess`) must now use the new state.

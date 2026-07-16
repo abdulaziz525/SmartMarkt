@@ -36,7 +36,7 @@ router.get('/purchase-orders', async (req, res) => {
 
 router.post('/purchase-orders', async (req, res) => {
   try {
-    const { po, currentUser } = req.body;
+    const { po} = req.body;
 
     await db.transaction(async (trx) => {
       const existing = await trx('purchase_orders').where({ id: po.id }).first();
@@ -56,11 +56,11 @@ router.post('/purchase-orders', async (req, res) => {
         await trx('purchase_orders').where({ id: po.id }).update(poData);
         await trx('purchase_order_items').where({ poId: po.id }).delete();
         
-        if (currentUser) {
+        if (req.user) {
           await logAudit(
-            currentUser.id,
-            currentUser.nameAr,
-            currentUser.role,
+            req.user.id,
+            req.user.nameAr,
+            req.user.role,
             'PO_UPDATE',
             `Updated Purchase Order: ${po.poNumber}, Status: ${po.status}`
           );
@@ -68,11 +68,11 @@ router.post('/purchase-orders', async (req, res) => {
       } else {
         await trx('purchase_orders').insert(poData);
         
-        if (currentUser) {
+        if (req.user) {
           await logAudit(
-            currentUser.id,
-            currentUser.nameAr,
-            currentUser.role,
+            req.user.id,
+            req.user.nameAr,
+            req.user.role,
             'PO_CREATE',
             `Created Purchase Order: ${po.poNumber} for supplier ${po.supplierName}`
           );
@@ -102,7 +102,7 @@ router.post('/purchase-orders', async (req, res) => {
 router.post('/purchase-orders/:id/receive', async (req, res) => {
   try {
     const { id } = req.params;
-    const { currentUser } = req.body;
+    const {} = req.body;
 
     await db.transaction(async (trx) => {
       const po = await trx('purchase_orders').where({ id }).first();
@@ -140,11 +140,11 @@ router.post('/purchase-orders/:id/receive', async (req, res) => {
         });
       }
 
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'PO_RECEIVE',
           `Received Purchase Order: ${po.poNumber}, inventory stock updated for ${poItems.length} items`
         );

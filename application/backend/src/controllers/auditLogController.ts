@@ -15,12 +15,12 @@ router.get('/audit-logs', async (req, res) => {
 
 router.post('/audit-logs', async (req, res) => {
   try {
-    const { action, details, currentUser } = req.body;
-    if (currentUser) {
+    const { action, details} = req.body;
+    if (req.user) {
       await logAudit(
-        currentUser.id,
-        currentUser.nameAr,
-        currentUser.role,
+        req.user.id,
+        req.user.nameAr,
+        req.user.role,
         action,
         details
       );

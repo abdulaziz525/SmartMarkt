@@ -1,4 +1,5 @@
 import { db } from '../config/db.js';
+import bcrypt from 'bcryptjs';
 
 // Helper to get dates relative to today
 const getDateAgo = (days: number): string => {
@@ -45,6 +46,7 @@ export async function runMigrations() {
     await db.schema.createTable('users', (table) => {
       table.string('id').primary();
       table.string('username').unique().notNullable();
+      table.string('password').notNullable();
       table.string('nameAr').notNullable();
       table.string('nameEn').notNullable();
       table.string('role').notNullable();
@@ -52,10 +54,11 @@ export async function runMigrations() {
     });
 
     // Seed default users
+    const defaultPassword = await bcrypt.hash('password123', 10);
     await db('users').insert([
-      { id: '1', username: 'owner', nameAr: 'المالك (أبو أحمد)', nameEn: 'Owner (Abu Ahmed)', role: 'owner', active: true },
-      { id: '2', username: 'manager', nameAr: 'أحمد العتيبي', nameEn: 'Ahmed Al-Otaibi', role: 'manager', active: true },
-      { id: '3', username: 'cashier', nameAr: 'خالد المحمد', nameEn: 'Khalid Al-Muhammed', role: 'cashier', active: true },
+      { id: '1', username: 'owner', password: defaultPassword, nameAr: 'المالك (أبو أحمد)', nameEn: 'Owner (Abu Ahmed)', role: 'owner', active: true },
+      { id: '2', username: 'manager', password: defaultPassword, nameAr: 'أحمد العتيبي', nameEn: 'Ahmed Al-Otaibi', role: 'manager', active: true },
+      { id: '3', username: 'cashier', password: defaultPassword, nameAr: 'خالد المحمد', nameEn: 'Khalid Al-Muhammed', role: 'cashier', active: true },
     ]);
   }
 

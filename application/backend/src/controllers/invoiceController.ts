@@ -49,7 +49,7 @@ router.get('/invoices', async (req, res) => {
 
 router.post('/invoices', async (req, res) => {
   try {
-    const { items, paymentMethod, paymentDetails, currentUser } = req.body;
+    const { items, paymentMethod, paymentDetails} = req.body;
     
     if (!items || items.length === 0) {
       return res.status(400).json({ error: 'Invoice must contain at least one item' });
@@ -140,8 +140,8 @@ router.post('/invoices', async (req, res) => {
         cashAmount: paymentDetails.cashAmount || null,
         cardAmount: paymentDetails.cardAmount || null,
         zatcaQrCode,
-        cashierId: currentUser.id,
-        cashierName: currentUser.nameAr
+        cashierId: req.user.id,
+        cashierName: req.user.nameAr
       };
 
       await trx('invoices').insert(invoiceData);
@@ -168,9 +168,9 @@ router.post('/invoices', async (req, res) => {
       await trx('audit_logs').insert({
         id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         timestamp: new Date().toISOString(),
-        userId: currentUser.id,
-        userName: currentUser.nameAr,
-        role: currentUser.role,
+        userId: req.user.id,
+        userName: req.user.nameAr,
+        role: req.user.role,
         action: 'SALES_CHECKOUT',
         details: auditMsg
       });
@@ -183,9 +183,9 @@ router.post('/invoices', async (req, res) => {
             await trx('audit_logs').insert({
               id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
               timestamp: new Date().toISOString(),
-              userId: currentUser.id,
-              userName: currentUser.nameAr,
-              role: currentUser.role,
+              userId: req.user.id,
+              userName: req.user.nameAr,
+              role: req.user.role,
               action: 'STOCK_ALERT',
               details: `Low stock warning: ${prod.nameEn} quantity is now ${finalQty} (threshold: ${prod.lowStockThreshold})`
             });
@@ -205,8 +205,8 @@ router.post('/invoices', async (req, res) => {
         paymentMethod,
         paymentDetails,
         zatcaQrCode,
-        cashierId: currentUser.id,
-        cashierName: currentUser.nameAr
+        cashierId: req.user.id,
+        cashierName: req.user.nameAr
       };
     });
 

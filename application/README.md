@@ -122,8 +122,9 @@ PORT=3001
 ### 4. Start Both Servers
 
 **Option A — Run both at once:**
+
 ```bash
-npm run dev:all
+npm run dev
 ```
 
 **Option B — Run separately (recommended for development):**

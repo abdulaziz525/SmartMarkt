@@ -19,7 +19,7 @@ router.get('/suppliers', async (req, res) => {
 
 router.post('/suppliers', async (req, res) => {
   try {
-    const { supplier, currentUser } = req.body;
+    const { supplier} = req.body;
     
     const existing = await db('suppliers').where({ id: supplier.id }).first();
     
@@ -34,22 +34,22 @@ router.post('/suppliers', async (req, res) => {
 
     if (existing) {
       await db('suppliers').where({ id: supplier.id }).update(supplierData);
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'SUPPLIER_UPDATE',
           `Updated supplier: ${supplier.name}`
         );
       }
     } else {
       await db('suppliers').insert(supplierData);
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'SUPPLIER_CREATE',
           `Created supplier: ${supplier.name}`
         );
@@ -65,16 +65,16 @@ router.post('/suppliers', async (req, res) => {
 router.delete('/suppliers/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { currentUser } = req.body;
+    const {} = req.body;
 
     const supplier = await db('suppliers').where({ id }).first();
     if (supplier) {
       await db('suppliers').where({ id }).delete();
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'SUPPLIER_DELETE',
           `Deleted supplier: ${supplier.name}`
         );
@@ -91,7 +91,7 @@ router.delete('/suppliers/:id', async (req, res) => {
 router.post('/suppliers/:id/pay', async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount, currentUser } = req.body;
+    const { amount} = req.body;
 
     await db.transaction(async (trx) => {
       const supplier = await trx('suppliers').where({ id }).first();
@@ -102,11 +102,11 @@ router.post('/suppliers/:id/pay', async (req, res) => {
       const newBalance = Number(supplier.balance) - Number(amount);
       await trx('suppliers').where({ id }).update({ balance: newBalance });
 
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'SUPPLIER_PAYMENT',
           `Paid ${amount.toFixed(2)} SAR to supplier ${supplier.name}`
         );

@@ -23,7 +23,7 @@ router.get('/products', async (req, res) => {
 
 router.post('/products', async (req, res) => {
   try {
-    const { product, currentUser } = req.body;
+    const { product} = req.body;
     
     const existing = await db('products').where({ id: product.id }).first();
     
@@ -44,22 +44,22 @@ router.post('/products', async (req, res) => {
 
     if (existing) {
       await db('products').where({ id: product.id }).update(productData);
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'PRODUCT_UPDATE',
           `Updated product: ${product.nameEn} (${product.barcode}). Stock: ${existing.quantity} -> ${product.quantity}`
         );
       }
     } else {
       await db('products').insert(productData);
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'PRODUCT_CREATE',
           `Added new product: ${product.nameEn} (${product.barcode}), Qty: ${product.quantity}`
         );
@@ -75,16 +75,16 @@ router.post('/products', async (req, res) => {
 router.delete('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { currentUser } = req.body;
+    const {} = req.body;
 
     const product = await db('products').where({ id }).first();
     if (product) {
       await db('products').where({ id }).delete();
-      if (currentUser) {
+      if (req.user) {
         await logAudit(
-          currentUser.id,
-          currentUser.nameAr,
-          currentUser.role,
+          req.user.id,
+          req.user.nameAr,
+          req.user.role,
           'PRODUCT_DELETE',
           `Deleted product: ${product.nameEn} (${product.barcode})`
         );
@@ -100,7 +100,7 @@ router.delete('/products/:id', async (req, res) => {
 
 router.post('/products/import-csv', async (req, res) => {
   try {
-    const { productsList, currentUser } = req.body;
+    const { productsList} = req.body;
     let successCount = 0;
     
     await db.transaction(async (trx) => {
@@ -133,11 +133,11 @@ router.post('/products/import-csv', async (req, res) => {
       }
     });
 
-    if (currentUser && successCount > 0) {
+    if (req.user && successCount > 0) {
       await logAudit(
-        currentUser.id,
-        currentUser.nameAr,
-        currentUser.role,
+        req.user.id,
+        req.user.nameAr,
+        req.user.role,
         'PRODUCT_IMPORT',
         `Successfully imported ${successCount} products via CSV`
       );
