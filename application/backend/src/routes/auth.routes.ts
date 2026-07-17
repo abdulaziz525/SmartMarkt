@@ -17,9 +17,9 @@ router.get('/auth/status', async (req, res) => {
 });
 
 async function performSignup(req: any, res: any, payload: any) {
-  const { fullName, email, password, organizationName, storeName, vatNumber, phone, address } = payload;
+  const { fullName, username, email, password, organizationName, storeName, vatNumber, phone, address } = payload;
 
-  if (!fullName || !email || !password || !organizationName || !storeName || !vatNumber || !phone || !address) {
+  if (!fullName || !username || !email || !password || !organizationName || !storeName || !vatNumber || !phone || !address) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
@@ -27,9 +27,9 @@ async function performSignup(req: any, res: any, payload: any) {
     return res.status(400).json({ error: 'Passwords do not match' });
   }
 
-  const existingUser = await db('users').where({ username: email }).first();
+  const existingUser = await db('users').where({ username }).first();
   if (existingUser) {
-    return res.status(400).json({ error: 'Email already exists' });
+    return res.status(400).json({ error: 'Username already exists' });
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -50,7 +50,7 @@ async function performSignup(req: any, res: any, payload: any) {
   };
   const newOwner = {
     id: userId,
-    username: email,
+    username: username,
     password: hashedPassword,
     nameAr: fullName,
     nameEn: fullName,

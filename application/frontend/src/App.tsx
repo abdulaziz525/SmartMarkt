@@ -8,6 +8,7 @@ import {
   History,
   Settings,
   Globe,
+  User,
   Plus,
   Trash2,
   Edit3,
@@ -27,9 +28,6 @@ import {
 import QRCode from 'qrcode';
 import { apiService } from './services/api';
 import { LoginPage } from './features/auth/LoginPage';
-import { SetupPage } from './features/auth/SetupPage';
-import { BranchManagement } from './components/BranchManagement';
-import { usePermissions } from './hooks/usePermissions';
 import type { StoreInfo } from './services/api';
 import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod } from './types';
 
@@ -49,11 +47,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser>({} as AppUser);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-  const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
+  const [usersList, setUsersList] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [stores, setStores] = useState<any[]>([]);
-  const [isSwitcherOpen, setIsSwitcherOpen] = useState<boolean>(false);
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -90,39 +86,41 @@ export default function App() {
   // Barcode input focus ref
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // RBAC permissions hook
-  const permissions = usePermissions(isAuthenticated ? currentUser : null);
+  // Verify Auth on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await apiService.verifyAuth();
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+      } catch (err) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
 
   // Fetch all data from the backend API
-  const refreshData = async (userOverride?: AppUser) => {
-    const user = userOverride || currentUser;
+  const refreshData = async () => {
     try {
-      const promises: Promise<any>[] = [
+      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData] = await Promise.all([
         apiService.getProducts(),
         apiService.getInvoices(),
         apiService.getSuppliers(),
         apiService.getPurchaseOrders(),
         apiService.getAuditLogs(),
         apiService.getStoreInfo(),
-      ];
-
-      const role = user?.role;
-      if (role === 'owner') {
-        promises.push(apiService.getStores());
-      }
-
-      const results = await Promise.allSettled(promises);
-
-      if (results[0].status === 'fulfilled') setProducts(results[0].value);
-      if (results[1].status === 'fulfilled') setInvoices(results[1].value);
-      if (results[2].status === 'fulfilled') setSuppliers(results[2].value);
-      if (results[3].status === 'fulfilled') setPurchaseOrders(results[3].value);
-      if (results[4].status === 'fulfilled') setLogs(results[4].value);
-      if (results[5].status === 'fulfilled' && results[5].value) setStoreInfo(results[5].value);
-
-      if (role === 'owner' && results[6] && results[6].status === 'fulfilled') {
-        setStores(results[6].value);
-      }
+        apiService.getUsers(),
+      ]);
+      setProducts(productsData);
+      setInvoices(invoicesData);
+      setSuppliers(suppliersData);
+      setPurchaseOrders(posData);
+      setLogs(logsData);
+      if (storeData) setStoreInfo(storeData);
+      setUsersList(usersData);
     } catch (err) {
       console.error('Failed to refresh data from API:', err);
     }
@@ -131,27 +129,8 @@ export default function App() {
   useEffect(() => {
     const initApp = async () => {
       setIsLoading(true);
-      try {
-        const setupRes = await apiService.checkSetupStatus();
-        setIsSetupComplete(setupRes.isSetupComplete);
-
-        if (setupRes.isSetupComplete) {
-          const user = await apiService.verifyAuth();
-          setCurrentUser(user);
-          setIsAuthenticated(true);
-          
-          if (!localStorage.getItem('activeStoreId') && user.store_id) {
-            localStorage.setItem('activeStoreId', user.store_id);
-          }
-          
-          await refreshData(user);
-        }
-      } catch (err) {
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
-        setIsAuthLoading(false);
-      }
+      await refreshData();
+      setIsLoading(false);
     };
     initApp();
   }, []);
@@ -611,31 +590,6 @@ export default function App() {
     return diffDays <= 7; // Alert if within 7 days
   });
 
-  if (isAuthLoading || isSetupComplete === null) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-900 text-slate-200">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
-          <p className="animate-pulse">{lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isSetupComplete === false) {
-    return <SetupPage onSetupComplete={() => {
-      setIsSetupComplete(true);
-      window.location.reload();
-    }} />;
-  }
-
-  if (!isAuthenticated) {
-    return <LoginPage onLogin={() => {
-      setIsAuthenticated(true);
-      window.location.reload();
-    }} />;
-  }
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
@@ -647,6 +601,24 @@ export default function App() {
     );
   }
 
+  if (isAuthLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-900 text-slate-200">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
+          <p className="animate-pulse">{lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={() => {
+      setIsAuthenticated(true);
+      window.location.reload();
+    }} />;
+  }
+
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-indigo-500 selection:text-white`}>
       {/* Top Header */}
@@ -656,47 +628,10 @@ export default function App() {
             <span className="font-extrabold text-lg text-white">S</span>
           </div>
           <div>
-            {currentUser.role === 'owner' ? (
-              <div className="relative" data-testid="store-switcher">
-                <button
-                  onClick={() => setIsSwitcherOpen(!isSwitcherOpen)}
-                  data-testid="store-switcher-button"
-                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-xs transition"
-                >
-                  <h1 data-testid="header-store-name" className="text-sm font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-                    {lang === 'ar' ? storeInfo?.nameAr : storeInfo?.nameEn}
-                  </h1>
-                  <span className="text-[10px] text-indigo-400 ml-1">▼</span>
-                </button>
-                {isSwitcherOpen && (
-                  <div
-                    data-testid="store-switcher-menu"
-                    className="absolute left-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 p-1"
-                  >
-                    {stores.map(store => (
-                      <button
-                        key={store.id}
-                        data-testid={`store-option-${store.id}`}
-                        onClick={async () => {
-                          localStorage.setItem('activeStoreId', store.id);
-                          setIsSwitcherOpen(false);
-                          setCart([]); // Clear cart to prevent leaks (TC-F3-09)
-                          await refreshData(currentUser);
-                        }}
-                        className="w-full text-right px-3 py-2 text-xs rounded-lg hover:bg-slate-800 text-white transition flex items-center justify-between"
-                      >
-                        <span>{lang === 'ar' ? store.nameAr : store.nameEn}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <h1 data-testid="header-store-name" className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-                {lang === 'ar' ? storeInfo?.nameAr : storeInfo?.nameEn}
-              </h1>
-            )}
-            <p data-testid="header-store-vat" className="text-xs text-slate-400 font-mono">
+            <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+              {lang === 'ar' ? storeInfo?.nameAr : storeInfo?.nameEn}
+            </h1>
+            <p className="text-xs text-slate-400 font-mono">
               VAT: {storeInfo?.vatNumber}
             </p>
           </div>
@@ -724,7 +659,6 @@ export default function App() {
               setIsAuthenticated(false);
               window.location.reload();
             }}
-            data-testid="logout-button"
             className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg px-3 py-1.5 text-xs font-semibold transition"
           >
             <span>{lang === 'ar' ? 'تسجيل الخروج' : 'Logout'}</span>
@@ -746,110 +680,89 @@ export default function App() {
         {/* Navigation Sidebar */}
         <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
           <nav className="flex-1 p-4 space-y-1">
-            {(permissions.isOwner || permissions.role === 'manager') && (
-              <button
-                onClick={() => setActiveTab('dashboard')}
-                data-testid="tab-dashboard"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'dashboard'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <LayoutDashboard className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'dashboard'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
+            </button>
 
-            {permissions.canAccessPOS && (
-              <button
-                onClick={() => setActiveTab('pos')}
-                data-testid="tab-pos"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'pos'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <ShoppingBag className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('pos')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'pos'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <ShoppingBag className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
+            </button>
 
-            {permissions.canManageInventory && (
-              <button
-                onClick={() => setActiveTab('inventory')}
-                data-testid="tab-inventory"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'inventory'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <Package className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'inventory'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Package className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
+            </button>
 
-            {permissions.canManageSuppliers && (
-              <button
-                onClick={() => setActiveTab('suppliers')}
-                data-testid="tab-suppliers"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'suppliers'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <Truck className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('suppliers')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'suppliers'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Truck className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
+            </button>
 
-            {(permissions.isOwner || permissions.role === 'manager') && (
-              <button
-                onClick={() => setActiveTab('reports')}
-                data-testid="tab-reports"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'reports'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <FileText className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'reports'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
+            </button>
 
-            {permissions.isOwner && (
-              <button
-                onClick={() => setActiveTab('audit')}
-                data-testid="tab-audit"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'audit'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <History className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'audit'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <History className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
+            </button>
 
-            {permissions.canManageStoreSettings && (
-              <button
-                onClick={() => setActiveTab('settings')}
-                data-testid="tab-settings"
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  activeTab === 'settings'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <Settings className="h-5 w-5" />
-                <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                activeTab === 'settings'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Settings className="h-5 w-5" />
+              <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
+            </button>
           </nav>
 
           {/* Quick Stats Sidebar footer */}
@@ -893,7 +806,7 @@ export default function App() {
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'مبيعات اليوم المحققة' : 'Today\'s Total Sales'}
                   </div>
-                  <div data-testid="total-sales" className="mt-2 text-2xl font-bold text-white">
+                  <div className="mt-2 text-2xl font-bold text-white">
                     {filteredInvoices.reduce((a, c) => a + c.total, 0).toFixed(2)} <span className="text-sm text-indigo-400 font-semibold">{getTrans('currency')}</span>
                   </div>
                   <div className="mt-1 text-xs text-emerald-400 font-semibold flex items-center gap-1">
@@ -907,7 +820,7 @@ export default function App() {
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'عدد فواتير المبيعات' : 'Sales Invoice Count'}
                   </div>
-                  <div data-testid="sales-invoice-count" className="mt-2 text-2xl font-bold text-white">
+                  <div className="mt-2 text-2xl font-bold text-white">
                     {filteredInvoices.length} <span className="text-sm text-purple-400 font-semibold">{lang === 'ar' ? 'فاتورة' : 'bills'}</span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500 font-mono">
@@ -933,7 +846,7 @@ export default function App() {
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'إجمالي الأرباح الصافية (تقديري)' : 'Estimated Net Profit'}
                   </div>
-                  <div data-testid="net-profit" className="mt-2 text-2xl font-bold text-emerald-400">
+                  <div className="mt-2 text-2xl font-bold text-emerald-400">
                     {reportMetrics.netProfit.toFixed(2)} <span className="text-sm font-semibold">{getTrans('currency')}</span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
@@ -1076,7 +989,7 @@ export default function App() {
                       const basePrice = item.customPrice !== undefined ? item.customPrice : item.product.sellingPrice;
                       const itemTotal = item.quantity * basePrice * (1 - item.discount / 100);
                       return (
-                        <div key={idx} data-testid="cart-item" className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between gap-4">
+                        <div key={idx} className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between gap-4">
                           <div className="flex-1">
                             <div className="font-bold text-sm text-slate-200">
                               {lang === 'ar' ? item.product.nameAr : item.product.nameEn}
@@ -1294,7 +1207,6 @@ export default function App() {
                         <button
                           key={p.id}
                           onClick={() => addToCart(p)}
-                          data-testid={`pos-product-item-${p.barcode}`}
                           className="bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-xl p-3 text-right flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0 text-slate-200"
                         >
                           <div>
@@ -1392,7 +1304,6 @@ export default function App() {
                       });
                       setIsProductModalOpen(true);
                     }}
-                    data-testid="new-product-button"
                     className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-xs rounded-lg px-4 py-2 font-bold transition shadow"
                   >
                     <Plus className="h-4 w-4" />
@@ -1488,7 +1399,7 @@ export default function App() {
                           }
 
                           return (
-                            <tr key={idx} data-testid={`product-row-${p.barcode}`} className="hover:bg-slate-900/60 transition">
+                            <tr key={idx} className="hover:bg-slate-900/60 transition">
                               <td className="p-4 font-mono text-xs text-slate-400">{p.barcode}</td>
                               <td className="p-4">
                                 <div className="font-bold text-slate-200">{p.nameAr}</div>
@@ -1954,13 +1865,6 @@ export default function App() {
                   </button>
                 </form>
               </div>
-
-              {/* Branch Management Section */}
-              {permissions.canManageBranches && (
-                <div className="max-w-4xl">
-                  <BranchManagement lang={lang} />
-                </div>
-              )}
             </div>
           )}
 
@@ -2087,7 +1991,6 @@ export default function App() {
                   <input
                     type="text"
                     required
-                    data-testid="product-barcode"
                     value={editingProduct.barcode}
                     onChange={(e) => setEditingProduct({ ...editingProduct, barcode: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 font-mono text-slate-200 focus:outline-none"
@@ -2097,7 +2000,6 @@ export default function App() {
                   <label className="font-bold">{lang === 'ar' ? 'الفئة:' : 'Category'}</label>
                   <input
                     type="text"
-                    data-testid="product-category"
                     value={editingProduct.category}
                     onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
                     placeholder="e.g. مشروبات"
@@ -2112,7 +2014,6 @@ export default function App() {
                   <input
                     type="text"
                     required
-                    data-testid="product-name-ar"
                     value={editingProduct.nameAr}
                     onChange={(e) => setEditingProduct({ ...editingProduct, nameAr: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none text-right"
@@ -2123,7 +2024,6 @@ export default function App() {
                   <input
                     type="text"
                     required
-                    data-testid="product-name-en"
                     value={editingProduct.nameEn}
                     onChange={(e) => setEditingProduct({ ...editingProduct, nameEn: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none text-left"
@@ -2137,7 +2037,6 @@ export default function App() {
                   <input
                     type="number"
                     step="0.01"
-                    data-testid="product-cost-price"
                     value={editingProduct.costPrice || ''}
                     onChange={(e) => setEditingProduct({ ...editingProduct, costPrice: parseFloat(e.target.value) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none"
@@ -2148,7 +2047,6 @@ export default function App() {
                   <input
                     type="number"
                     step="0.01"
-                    data-testid="product-selling-price"
                     value={editingProduct.sellingPrice || ''}
                     onChange={(e) => setEditingProduct({ ...editingProduct, sellingPrice: parseFloat(e.target.value) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none"
@@ -2158,7 +2056,6 @@ export default function App() {
                   <label className="font-bold text-slate-400">{lang === 'ar' ? 'الكمية الحالية:' : 'Quantity'}</label>
                   <input
                     type="number"
-                    data-testid="product-quantity"
                     value={editingProduct.quantity || ''}
                     onChange={(e) => setEditingProduct({ ...editingProduct, quantity: parseInt(e.target.value, 10) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none"
@@ -2171,7 +2068,6 @@ export default function App() {
                   <label className="font-bold">{lang === 'ar' ? 'وحدة القياس:' : 'UoM Unit'}</label>
                   <input
                     type="text"
-                    data-testid="product-unit"
                     value={editingProduct.unit}
                     placeholder="pcs, kg, pack"
                     onChange={(e) => setEditingProduct({ ...editingProduct, unit: e.target.value })}
@@ -2182,7 +2078,6 @@ export default function App() {
                   <label className="font-bold">{lang === 'ar' ? 'حد الطلب الأدنى:' : 'Stock Alert Thresh'}</label>
                   <input
                     type="number"
-                    data-testid="product-threshold"
                     value={editingProduct.lowStockThreshold}
                     onChange={(e) => setEditingProduct({ ...editingProduct, lowStockThreshold: parseInt(e.target.value, 10) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none font-mono"
@@ -2215,7 +2110,6 @@ export default function App() {
 
               <button
                 type="submit"
-                data-testid="product-save-button"
                 className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-lg text-white transition mt-4"
               >
                 {lang === 'ar' ? 'حفظ التعديلات' : 'Save Product'}

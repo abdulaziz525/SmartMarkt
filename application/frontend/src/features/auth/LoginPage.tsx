@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { apiService } from '../../services/api';
 import { LogIn, AlertTriangle, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const ar = {
   title: 'تسجيل الدخول إلى SmartMarkt',
@@ -122,7 +123,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         {/* Signup Prompt */}
         <div className="mt-6 text-center text-sm" dir="rtl">
           <p className="text-slate-400">
-            {ar.signupPrompt} <a href="/signup" className="font-semibold text-indigo-400 hover:text-indigo-300">{ar.signupLink}</a>
+            {ar.signupPrompt} <Link to="/signup" className="font-semibold text-indigo-400 hover:text-indigo-300">{ar.signupLink}</Link>
           </p>
         </div>
       </div>

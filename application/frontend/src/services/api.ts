@@ -14,12 +14,11 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { storeId?: string }): Promise<T> {
   const url = `${API_BASE}${path}`;
 
   // Inject the active store context header for multi-tenancy.
-  // The storeContextMiddleware requires this for owner-role users.
-  const storeId = localStorage.getItem('activeStoreId');
+  const storeId = options?.storeId || localStorage.getItem('activeStoreId');
   const extraHeaders: Record<string, string> = storeId ? { 'x-store-id': storeId } : {};
 
   const res = await fetch(url, {
@@ -36,20 +35,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function get<T>(path: string): Promise<T> {
-  return request<T>(path);
+function get<T>(path: string, storeId?: string): Promise<T> {
+  return request<T>(path, { storeId });
 }
 
-function post<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+function post<T>(path: string, body: unknown, storeId?: string): Promise<T> {
+  return request<T>(path, { method: 'POST', body: JSON.stringify(body), storeId });
 }
 
-function put<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
+function put<T>(path: string, body: unknown, storeId?: string): Promise<T> {
+  return request<T>(path, { method: 'PUT', body: JSON.stringify(body), storeId });
 }
 
-function del<T>(path: string, body?: unknown): Promise<T> {
-  return request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined });
+function del<T>(path: string, body?: unknown, storeId?: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined, storeId });
 }
 
 // ── API Service ──────────────────────────────────────────────────────
@@ -61,12 +60,12 @@ export const apiService = {
   },
 
   // ── Store Info ───────────────────────────────────────────────────
-  getStoreInfo(): Promise<StoreInfo | null> {
-    return get<StoreInfo | null>('/store-info');
+  getStoreInfo(storeId?: string): Promise<StoreInfo> {
+    return get<StoreInfo>('/store-info', storeId);
   },
 
-  async updateStoreInfo(info: StoreInfo): Promise<void> {
-    await put('/store-info', { ...info});
+  async updateStoreInfo(info: StoreInfo, storeId?: string): Promise<void> {
+    await put('/store-info', { ...info}, storeId);
   },
 
   // ── Branches ─────────────────────────────────────────────────────
@@ -98,6 +97,7 @@ export const apiService = {
 
   signup(data: {
     fullName: string;
+    username: string;
     email: string;
     password: string;
     organizationName: string;
@@ -131,8 +131,8 @@ export const apiService = {
   },
 
   // ── Products ─────────────────────────────────────────────────────
-  getProducts(): Promise<Product[]> {
-    return get<Product[]>('/products');
+  getProducts(storeId?: string): Promise<Product[]> {
+    return get<Product[]>('/products', storeId);
   },
 
   saveProduct(product: Product): Promise<Product> {
@@ -148,8 +148,8 @@ export const apiService = {
   },
 
   // ── Invoices ─────────────────────────────────────────────────────
-  getInvoices(): Promise<Invoice[]> {
-    return get<Invoice[]>('/invoices');
+  getInvoices(storeId?: string): Promise<Invoice[]> {
+    return get<Invoice[]>('/invoices', storeId);
   },
 
   createInvoice(
@@ -165,8 +165,8 @@ export const apiService = {
   },
 
   // ── Suppliers ────────────────────────────────────────────────────
-  getSuppliers(): Promise<Supplier[]> {
-    return get<Supplier[]>('/suppliers');
+  getSuppliers(storeId?: string): Promise<Supplier[]> {
+    return get<Supplier[]>('/suppliers', storeId);
   },
 
   saveSupplier(supplier: Supplier): Promise<Supplier> {
@@ -182,8 +182,8 @@ export const apiService = {
   },
 
   // ── Purchase Orders ──────────────────────────────────────────────
-  getPurchaseOrders(): Promise<PurchaseOrder[]> {
-    return get<PurchaseOrder[]>('/purchase-orders');
+  getPurchaseOrders(storeId?: string): Promise<PurchaseOrder[]> {
+    return get<PurchaseOrder[]>('/purchase-orders', storeId);
   },
 
   savePurchaseOrder(po: PurchaseOrder): Promise<PurchaseOrder> {
@@ -195,8 +195,8 @@ export const apiService = {
   },
 
   // ── Audit Logs ───────────────────────────────────────────────────
-  getAuditLogs(): Promise<AuditLog[]> {
-    return get<AuditLog[]>('/audit-logs');
+  getAuditLogs(storeId?: string): Promise<AuditLog[]> {
+    return get<AuditLog[]>('/audit-logs', storeId);
   },
 
   logAudit(action: string, details: string): Promise<{ success: boolean }> {
