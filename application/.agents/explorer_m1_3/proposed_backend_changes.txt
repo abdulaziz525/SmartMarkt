@@ -1,0 +1,84 @@
+diff --git a/backend/src/app.ts b/backend/src/app.ts
+index c6b8a8b..d8c9a0c 100644
+--- a/backend/src/app.ts
++++ b/backend/src/app.ts
+@@ -2,7 +2,7 @@ import express from 'express';
+ import cors from 'cors';
+ import dotenv from 'dotenv';
+ import cookieParser from 'cookie-parser';
+-import { runMigrations } from './models/migrations.js';
++import { runMigrations, resetDatabase } from './models/migrations.js';
+ import { authMiddleware } from './middlewares/authMiddleware.js';
+ import { checkPermissionMiddleware } from './middlewares/checkPermissionMiddleware.js';
+ import authRoutes from './routes/auth.routes.js';
+@@ -29,6 +29,19 @@ app.use(express.json());
+ app.use(cookieParser());
+ 
+ // API Routes
++if (process.env.NODE_ENV === 'test') {
++  app.post('/api/test/reset', async (req, res) => {
++    try {
++      await resetDatabase();
++      res.status(200).json({ message: 'Database reset successful' });
++    } catch (err: any) {
++      console.error('Failed to reset database during E2E test:', err);
++      res.status(500).json({ error: 'Database reset failed', details: err.message });
++    }
++  });
++  console.log('E2E Test reset endpoint registered at POST /api/test/reset');
++}
++
+ app.use('/api', authRoutes);
+ 
+ // Protected API Routes
+diff --git a/backend/src/models/migrations.ts b/backend/src/models/migrations.ts
+index c7e21a2..12b8d9c 100644
+--- a/backend/src/models/migrations.ts
++++ b/backend/src/models/migrations.ts
+@@ -252,3 +252,43 @@ export async function runMigrations() {
+   console.log('Database auto-migrations and seeding completed successfully!');
+ }
+ 
++export async function resetDatabase() {
++  console.log('Resetting database for test run...');
++  const dbType = (process.env.DB_TYPE || 'postgres').toLowerCase();
++
++  // 1. Disable Foreign Keys
++  if (dbType === 'sqlite') {
++    await db.raw('PRAGMA foreign_keys = OFF;');
++  } else if (dbType === 'mysql') {
++    await db.raw('SET FOREIGN_KEY_CHECKS = 0;');
++  } else {
++    // PostgreSQL
++    await db.raw('SET CONSTRAINTS ALL DEFERRED;');
++  }
++
++  // 2. Drop Tables in reverse dependency order
++  const tables = [
++    'invoice_items',
++    'invoices',
++    'purchase_order_items',
++    'purchase_orders',
++    'branches',
++    'audit_logs',
++    'suppliers',
++    'products',
++    'users',
++    'store_info'
++  ];
++
++  for (const table of tables) {
++    await db.schema.dropTableIfExists(table);
++  }
++
++  // 3. Re-enable Foreign Keys
++  if (dbType === 'sqlite') {
++    await db.raw('PRAGMA foreign_keys = ON;');
++  } else if (dbType === 'mysql') {
++    await db.raw('SET FOREIGN_KEY_CHECKS = 1;');
++  }
++
++  // 4. Re-run migrations
++  await runMigrations();
++  console.log('Database reset complete.');
++}

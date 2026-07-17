@@ -25,10 +25,10 @@ export const checkPermissionMiddleware = (req: Request, res: Response, next: Nex
   }
 
   if (role === 'manager') {
-    // Manager can access most things except branches, users, and modifying store settings
+    // Manager can access most things except stores, users, and modifying store settings
     const isRestricted = path.startsWith('/api/users') || 
-                         path.startsWith('/api/branches') || 
-                         (path.startsWith('/api/store') && method !== 'GET');
+                         path.startsWith('/api/stores') || 
+                         (path.startsWith('/api/store-info') && method !== 'GET');
     
     if (isRestricted) {
       return res.status(403).json({ error: 'Forbidden: Branch Managers cannot access this resource' });
@@ -38,3 +38,4 @@ export const checkPermissionMiddleware = (req: Request, res: Response, next: Nex
 
   return res.status(403).json({ error: 'Forbidden: Unknown role' });
 };
+

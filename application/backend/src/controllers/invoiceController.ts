@@ -7,8 +7,8 @@ const router = Router();
 
 router.get('/invoices', async (req, res) => {
   try {
-    const invoices = await db('invoices').select('*').orderBy('date', 'desc');
-    const allItems = await db('invoice_items').select('*');
+    const invoices = await db('invoices').where({ store_id: req.storeId }).orderBy('date', 'desc');
+    const allItems = await db('invoice_items').where({ store_id: req.storeId });
 
     const formatted = invoices.map(inv => {
       const items = allItems
@@ -49,13 +49,13 @@ router.get('/invoices', async (req, res) => {
 
 router.post('/invoices', async (req, res) => {
   try {
-    const { items, paymentMethod, paymentDetails} = req.body;
+    const { items, paymentMethod, paymentDetails } = req.body;
     
     if (!items || items.length === 0) {
       return res.status(400).json({ error: 'Invoice must contain at least one item' });
     }
 
-    const store = await db('store_info').first();
+    const store = await db('stores').where({ id: req.storeId }).first();
     if (!store) {
       return res.status(500).json({ error: 'Store information is missing. Set store settings first.' });
     }
@@ -64,7 +64,7 @@ router.post('/invoices', async (req, res) => {
 
     await db.transaction(async (trx) => {
       const productIds = items.map((i: any) => i.product.id);
-      const dbProducts = await trx('products').whereIn('id', productIds);
+      const dbProducts = await trx('products').whereIn('id', productIds).andWhere({ store_id: req.storeId });
 
       const invoiceItems = items.map((item: any) => {
         const p = item.product;
@@ -92,6 +92,7 @@ router.post('/invoices', async (req, res) => {
           subtotal,
           vatAmount,
           total,
+          store_id: req.storeId
         };
       });
 
@@ -99,7 +100,7 @@ router.post('/invoices', async (req, res) => {
         const prod = dbProducts.find((p: any) => p.id === item.product.id);
         if (prod) {
           const newQty = Math.max(0, Number(prod.quantity) - item.quantity);
-          await trx('products').where({ id: prod.id }).update({ quantity: newQty });
+          await trx('products').where({ id: prod.id, store_id: req.storeId }).update({ quantity: newQty });
         }
       }
 
@@ -107,7 +108,7 @@ router.post('/invoices', async (req, res) => {
       const vatAmount = invoiceItems.reduce((acc: number, item: any) => acc + item.vatAmount, 0);
       const total = subtotal + vatAmount;
 
-      const countRes = await trx('invoices').count('id as cnt').first();
+      const countRes = await trx('invoices').where({ store_id: req.storeId }).count('id as cnt').first();
       const count = Number(countRes?.cnt || 0);
       const invSeq = count + 1001;
       const invoiceNumber = `INV-2026-${invSeq}`;
@@ -141,7 +142,8 @@ router.post('/invoices', async (req, res) => {
         cardAmount: paymentDetails.cardAmount || null,
         zatcaQrCode,
         cashierId: req.user.id,
-        cashierName: req.user.nameAr
+        cashierName: req.user.nameAr,
+        store_id: req.storeId
       };
 
       await trx('invoices').insert(invoiceData);
@@ -158,7 +160,8 @@ router.post('/invoices', async (req, res) => {
         taxRate: item.taxRate,
         subtotal: item.subtotal,
         vatAmount: item.vatAmount,
-        total: item.total
+        total: item.total,
+        store_id: req.storeId
       }));
       
       await trx('invoice_items').insert(itemRows);
@@ -172,7 +175,8 @@ router.post('/invoices', async (req, res) => {
         userName: req.user.nameAr,
         role: req.user.role,
         action: 'SALES_CHECKOUT',
-        details: auditMsg
+        details: auditMsg,
+        store_id: req.storeId
       });
 
       for (const item of invoiceItems) {
@@ -187,7 +191,8 @@ router.post('/invoices', async (req, res) => {
               userName: req.user.nameAr,
               role: req.user.role,
               action: 'STOCK_ALERT',
-              details: `Low stock warning: ${prod.nameEn} quantity is now ${finalQty} (threshold: ${prod.lowStockThreshold})`
+              details: `Low stock warning: ${prod.nameEn} quantity is now ${finalQty} (threshold: ${prod.lowStockThreshold})`,
+              store_id: req.storeId
             });
           }
         }

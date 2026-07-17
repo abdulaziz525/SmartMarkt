@@ -1,0 +1,23 @@
+diff --git a/package.json b/package.json
+index 1ba2d3b..18e27c1 1000000
+--- a/package.json
++++ b/package.json
+@@ -11,7 +11,12 @@
+     "dev:frontend": "npm run dev --workspace=frontend --silent",
+     "build:frontend": "cd frontend && npm run build",
+     "build:backend": "cd backend && npm run build",
+-    "build": "npm run build:frontend && npm run build:backend"
++    "build": "npm run build:frontend && npm run build:backend",
++    "start:test:backend": "cross-env NODE_ENV=test DB_TYPE=sqlite DB_NAME=database.test.sqlite npm run dev --workspace=backend",
++    "start:test:frontend": "cross-env VITE_API_URL=http://localhost:3001/api npm run dev --workspace=frontend",
++    "test:e2e": "playwright test",
++    "test:e2e:ui": "playwright test --ui",
++    "test:e2e:debug": "playwright test --debug"
+   },
+   "devDependencies": {
+-    "concurrently": "^8.2.2"
++    "@playwright/test": "^1.49.0",
++    "concurrently": "^8.2.2",
++    "cross-env": "^7.0.3"
+   }
+ }

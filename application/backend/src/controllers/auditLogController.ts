@@ -6,7 +6,7 @@ const router = Router();
 
 router.get('/audit-logs', async (req, res) => {
   try {
-    const logs = await db('audit_logs').select('*').orderBy('timestamp', 'desc');
+    const logs = await db('audit_logs').where({ store_id: req.storeId }).orderBy('timestamp', 'desc');
     res.json(logs);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -15,14 +15,15 @@ router.get('/audit-logs', async (req, res) => {
 
 router.post('/audit-logs', async (req, res) => {
   try {
-    const { action, details} = req.body;
+    const { action, details } = req.body;
     if (req.user) {
       await logAudit(
         req.user.id,
         req.user.nameAr,
         req.user.role,
         action,
-        details
+        details,
+        req.storeId
       );
       res.json({ success: true });
     } else {
@@ -34,3 +35,4 @@ router.post('/audit-logs', async (req, res) => {
 });
 
 export default router;
+

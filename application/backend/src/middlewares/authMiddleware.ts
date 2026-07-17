@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_for_dev';
 
+export const tokenBlacklist = new Set<string>();
+
 // Extend Express Request to include user
 declare global {
   namespace Express {
@@ -17,6 +19,10 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
 
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+
+  if (tokenBlacklist.has(token)) {
+    return res.status(401).json({ error: 'Unauthorized: Token has been logged out' });
   }
 
   try {

@@ -16,10 +16,18 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
+
+  // Inject the active store context header for multi-tenancy.
+  // The storeContextMiddleware requires this for owner-role users.
+  const storeId = localStorage.getItem('activeStoreId');
+  const extraHeaders: Record<string, string> = storeId ? { 'x-store-id': storeId } : {};
+
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     credentials: 'include',
     ...options,
+    // Merge caller-supplied headers on top, but keep our injected ones as defaults
+    ...(options?.headers ? { headers: { 'Content-Type': 'application/json', ...extraHeaders, ...(options.headers as object) } } : {}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -88,6 +96,19 @@ export const apiService = {
     return post<User>('/auth/setup', data);
   },
 
+  signup(data: {
+    fullName: string;
+    email: string;
+    password: string;
+    organizationName: string;
+    storeName: string;
+    vatNumber: string;
+    phone: string;
+    address: string;
+  }): Promise<User> {
+    return post<User>('/auth/signup', data);
+  },
+
   login(username: string, password: string): Promise<User> {
     return post<User>('/auth/login', { username, password });
   },
@@ -102,6 +123,11 @@ export const apiService = {
 
   verifyAuth(): Promise<User> {
     return get<User>('/auth/verify');
+  },
+
+  // ── Stores (multi-tenancy) ────────────────────────────────────────
+  getStores(): Promise<any[]> {
+    return get<any[]>('/stores');
   },
 
   // ── Products ─────────────────────────────────────────────────────

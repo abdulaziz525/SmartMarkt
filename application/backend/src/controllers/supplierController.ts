@@ -6,7 +6,7 @@ const router = Router();
 
 router.get('/suppliers', async (req, res) => {
   try {
-    const suppliers = await db('suppliers').select('*');
+    const suppliers = await db('suppliers').where({ store_id: req.storeId }).select('*');
     const sanitized = suppliers.map(s => ({
       ...s,
       balance: Number(s.balance)
@@ -19,9 +19,9 @@ router.get('/suppliers', async (req, res) => {
 
 router.post('/suppliers', async (req, res) => {
   try {
-    const { supplier} = req.body;
+    const { supplier } = req.body;
     
-    const existing = await db('suppliers').where({ id: supplier.id }).first();
+    const existing = await db('suppliers').where({ id: supplier.id, store_id: req.storeId }).first();
     
     const supplierData = {
       id: supplier.id,
@@ -29,18 +29,20 @@ router.post('/suppliers', async (req, res) => {
       phone: supplier.phone,
       email: supplier.email,
       vatNumber: supplier.vatNumber || null,
-      balance: supplier.balance
+      balance: supplier.balance,
+      store_id: req.storeId
     };
 
     if (existing) {
-      await db('suppliers').where({ id: supplier.id }).update(supplierData);
+      await db('suppliers').where({ id: supplier.id, store_id: req.storeId }).update(supplierData);
       if (req.user) {
         await logAudit(
           req.user.id,
           req.user.nameAr,
           req.user.role,
           'SUPPLIER_UPDATE',
-          `Updated supplier: ${supplier.name}`
+          `Updated supplier: ${supplier.name}`,
+          req.storeId
         );
       }
     } else {
@@ -51,7 +53,8 @@ router.post('/suppliers', async (req, res) => {
           req.user.nameAr,
           req.user.role,
           'SUPPLIER_CREATE',
-          `Created supplier: ${supplier.name}`
+          `Created supplier: ${supplier.name}`,
+          req.storeId
         );
       }
     }
@@ -65,18 +68,18 @@ router.post('/suppliers', async (req, res) => {
 router.delete('/suppliers/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const {} = req.body;
 
-    const supplier = await db('suppliers').where({ id }).first();
+    const supplier = await db('suppliers').where({ id, store_id: req.storeId }).first();
     if (supplier) {
-      await db('suppliers').where({ id }).delete();
+      await db('suppliers').where({ id, store_id: req.storeId }).delete();
       if (req.user) {
         await logAudit(
           req.user.id,
           req.user.nameAr,
           req.user.role,
           'SUPPLIER_DELETE',
-          `Deleted supplier: ${supplier.name}`
+          `Deleted supplier: ${supplier.name}`,
+          req.storeId
         );
       }
       res.json({ success: true });
@@ -91,16 +94,16 @@ router.delete('/suppliers/:id', async (req, res) => {
 router.post('/suppliers/:id/pay', async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount} = req.body;
+    const { amount } = req.body;
 
     await db.transaction(async (trx) => {
-      const supplier = await trx('suppliers').where({ id }).first();
+      const supplier = await trx('suppliers').where({ id, store_id: req.storeId }).first();
       if (!supplier) {
         throw new Error('Supplier not found');
       }
 
       const newBalance = Number(supplier.balance) - Number(amount);
-      await trx('suppliers').where({ id }).update({ balance: newBalance });
+      await trx('suppliers').where({ id, store_id: req.storeId }).update({ balance: newBalance });
 
       if (req.user) {
         await logAudit(
@@ -108,7 +111,8 @@ router.post('/suppliers/:id/pay', async (req, res) => {
           req.user.nameAr,
           req.user.role,
           'SUPPLIER_PAYMENT',
-          `Paid ${amount.toFixed(2)} SAR to supplier ${supplier.name}`
+          `Paid ${amount.toFixed(2)} SAR to supplier ${supplier.name}`,
+          req.storeId
         );
       }
     });
@@ -120,3 +124,4 @@ router.post('/suppliers/:id/pay', async (req, res) => {
 });
 
 export default router;
+

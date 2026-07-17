@@ -90,6 +90,8 @@ export interface User {
   nameEn: string;
   role: UserRole;
   active: boolean;
+  organization_id?: string;
+  store_id?: string;
 }
 
 export interface AuditLog {

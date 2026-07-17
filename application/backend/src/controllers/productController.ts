@@ -6,7 +6,7 @@ const router = Router();
 
 router.get('/products', async (req, res) => {
   try {
-    const products = await db('products').select('*');
+    const products = await db('products').where({ store_id: req.storeId }).select('*');
     const sanitized = products.map(p => ({
       ...p,
       costPrice: Number(p.costPrice),
@@ -23,9 +23,9 @@ router.get('/products', async (req, res) => {
 
 router.post('/products', async (req, res) => {
   try {
-    const { product} = req.body;
+    const { product } = req.body;
     
-    const existing = await db('products').where({ id: product.id }).first();
+    const existing = await db('products').where({ id: product.id, store_id: req.storeId }).first();
     
     const productData = {
       id: product.id,
@@ -39,18 +39,20 @@ router.post('/products', async (req, res) => {
       unit: product.unit,
       lowStockThreshold: product.lowStockThreshold,
       expiryDate: product.expiryDate || null,
-      isPerishable: product.isPerishable ? 1 : 0
+      isPerishable: product.isPerishable ? 1 : 0,
+      store_id: req.storeId
     };
 
     if (existing) {
-      await db('products').where({ id: product.id }).update(productData);
+      await db('products').where({ id: product.id, store_id: req.storeId }).update(productData);
       if (req.user) {
         await logAudit(
           req.user.id,
           req.user.nameAr,
           req.user.role,
           'PRODUCT_UPDATE',
-          `Updated product: ${product.nameEn} (${product.barcode}). Stock: ${existing.quantity} -> ${product.quantity}`
+          `Updated product: ${product.nameEn} (${product.barcode}). Stock: ${existing.quantity} -> ${product.quantity}`,
+          req.storeId
         );
       }
     } else {
@@ -61,7 +63,8 @@ router.post('/products', async (req, res) => {
           req.user.nameAr,
           req.user.role,
           'PRODUCT_CREATE',
-          `Added new product: ${product.nameEn} (${product.barcode}), Qty: ${product.quantity}`
+          `Added new product: ${product.nameEn} (${product.barcode}), Qty: ${product.quantity}`,
+          req.storeId
         );
       }
     }
@@ -75,18 +78,18 @@ router.post('/products', async (req, res) => {
 router.delete('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const {} = req.body;
 
-    const product = await db('products').where({ id }).first();
+    const product = await db('products').where({ id, store_id: req.storeId }).first();
     if (product) {
-      await db('products').where({ id }).delete();
+      await db('products').where({ id, store_id: req.storeId }).delete();
       if (req.user) {
         await logAudit(
           req.user.id,
           req.user.nameAr,
           req.user.role,
           'PRODUCT_DELETE',
-          `Deleted product: ${product.nameEn} (${product.barcode})`
+          `Deleted product: ${product.nameEn} (${product.barcode})`,
+          req.storeId
         );
       }
       res.json({ success: true });
@@ -100,7 +103,7 @@ router.delete('/products/:id', async (req, res) => {
 
 router.post('/products/import-csv', async (req, res) => {
   try {
-    const { productsList} = req.body;
+    const { productsList } = req.body;
     let successCount = 0;
     
     await db.transaction(async (trx) => {
@@ -117,12 +120,13 @@ router.post('/products/import-csv', async (req, res) => {
           unit: p.unit,
           lowStockThreshold: p.lowStockThreshold,
           expiryDate: p.expiryDate || null,
-          isPerishable: p.isPerishable ? 1 : 0
+          isPerishable: p.isPerishable ? 1 : 0,
+          store_id: req.storeId
         };
 
-        const existing = await trx('products').where({ barcode: p.barcode }).first();
+        const existing = await trx('products').where({ barcode: p.barcode, store_id: req.storeId }).first();
         if (existing) {
-          await trx('products').where({ barcode: p.barcode }).update({
+          await trx('products').where({ barcode: p.barcode, store_id: req.storeId }).update({
             ...productData,
             id: existing.id
           });
@@ -139,7 +143,8 @@ router.post('/products/import-csv', async (req, res) => {
         req.user.nameAr,
         req.user.role,
         'PRODUCT_IMPORT',
-        `Successfully imported ${successCount} products via CSV`
+        `Successfully imported ${successCount} products via CSV`,
+        req.storeId
       );
     }
 
@@ -150,3 +155,4 @@ router.post('/products/import-csv', async (req, res) => {
 });
 
 export default router;
+

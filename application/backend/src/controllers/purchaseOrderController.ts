@@ -6,8 +6,8 @@ const router = Router();
 
 router.get('/purchase-orders', async (req, res) => {
   try {
-    const pos = await db('purchase_orders').select('*').orderBy('date', 'desc');
-    const allItems = await db('purchase_order_items').select('*');
+    const pos = await db('purchase_orders').where({ store_id: req.storeId }).orderBy('date', 'desc');
+    const allItems = await db('purchase_order_items').where({ store_id: req.storeId });
     
     const formatted = pos.map(po => {
       const items = allItems
@@ -36,10 +36,10 @@ router.get('/purchase-orders', async (req, res) => {
 
 router.post('/purchase-orders', async (req, res) => {
   try {
-    const { po} = req.body;
+    const { po } = req.body;
 
     await db.transaction(async (trx) => {
-      const existing = await trx('purchase_orders').where({ id: po.id }).first();
+      const existing = await trx('purchase_orders').where({ id: po.id, store_id: req.storeId }).first();
       
       const poData = {
         id: po.id,
@@ -49,12 +49,13 @@ router.post('/purchase-orders', async (req, res) => {
         supplierName: po.supplierName,
         total: po.total,
         status: po.status,
-        receivedDate: po.receivedDate || null
+        receivedDate: po.receivedDate || null,
+        store_id: req.storeId
       };
 
       if (existing) {
-        await trx('purchase_orders').where({ id: po.id }).update(poData);
-        await trx('purchase_order_items').where({ poId: po.id }).delete();
+        await trx('purchase_orders').where({ id: po.id, store_id: req.storeId }).update(poData);
+        await trx('purchase_order_items').where({ poId: po.id, store_id: req.storeId }).delete();
         
         if (req.user) {
           await logAudit(
@@ -62,7 +63,8 @@ router.post('/purchase-orders', async (req, res) => {
             req.user.nameAr,
             req.user.role,
             'PO_UPDATE',
-            `Updated Purchase Order: ${po.poNumber}, Status: ${po.status}`
+            `Updated Purchase Order: ${po.poNumber}, Status: ${po.status}`,
+            req.storeId
           );
         }
       } else {
@@ -74,7 +76,8 @@ router.post('/purchase-orders', async (req, res) => {
             req.user.nameAr,
             req.user.role,
             'PO_CREATE',
-            `Created Purchase Order: ${po.poNumber} for supplier ${po.supplierName}`
+            `Created Purchase Order: ${po.poNumber} for supplier ${po.supplierName}`,
+            req.storeId
           );
         }
       }
@@ -87,7 +90,8 @@ router.post('/purchase-orders', async (req, res) => {
           productNameEn: item.productNameEn,
           costPrice: item.costPrice,
           quantity: item.quantity,
-          total: item.total
+          total: item.total,
+          store_id: req.storeId
         }));
         await trx('purchase_order_items').insert(itemRows);
       }
@@ -102,10 +106,9 @@ router.post('/purchase-orders', async (req, res) => {
 router.post('/purchase-orders/:id/receive', async (req, res) => {
   try {
     const { id } = req.params;
-    const {} = req.body;
 
     await db.transaction(async (trx) => {
-      const po = await trx('purchase_orders').where({ id }).first();
+      const po = await trx('purchase_orders').where({ id, store_id: req.storeId }).first();
       if (!po) {
         throw new Error('Purchase order not found');
       }
@@ -114,28 +117,28 @@ router.post('/purchase-orders/:id/receive', async (req, res) => {
       }
 
       const receivedDate = new Date().toISOString();
-      await trx('purchase_orders').where({ id }).update({
+      await trx('purchase_orders').where({ id, store_id: req.storeId }).update({
         status: 'received',
         receivedDate
       });
 
-      const poItems = await trx('purchase_order_items').where({ poId: id });
+      const poItems = await trx('purchase_order_items').where({ poId: id, store_id: req.storeId });
       
       for (const item of poItems) {
-        const product = await trx('products').where({ id: item.productId }).first();
+        const product = await trx('products').where({ id: item.productId, store_id: req.storeId }).first();
         if (product) {
           const newQty = Number(product.quantity) + Number(item.quantity);
-          await trx('products').where({ id: item.productId }).update({
+          await trx('products').where({ id: item.productId, store_id: req.storeId }).update({
             quantity: newQty,
             costPrice: item.costPrice
           });
         }
       }
 
-      const supplier = await trx('suppliers').where({ id: po.supplierId }).first();
+      const supplier = await trx('suppliers').where({ id: po.supplierId, store_id: req.storeId }).first();
       if (supplier) {
         const newBalance = Number(supplier.balance) + Number(po.total);
-        await trx('suppliers').where({ id: po.supplierId }).update({
+        await trx('suppliers').where({ id: po.supplierId, store_id: req.storeId }).update({
           balance: newBalance
         });
       }
@@ -146,7 +149,8 @@ router.post('/purchase-orders/:id/receive', async (req, res) => {
           req.user.nameAr,
           req.user.role,
           'PO_RECEIVE',
-          `Received Purchase Order: ${po.poNumber}, inventory stock updated for ${poItems.length} items`
+          `Received Purchase Order: ${po.poNumber}, inventory stock updated for ${poItems.length} items`,
+          req.storeId
         );
       }
     });
@@ -158,3 +162,4 @@ router.post('/purchase-orders/:id/receive', async (req, res) => {
 });
 
 export default router;
+

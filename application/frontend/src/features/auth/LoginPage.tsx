@@ -10,7 +10,9 @@ const ar = {
   passwordLabel: 'كلمة المرور',
   passwordPlaceholder: '••••••••',
   loginButton: 'تسجيل الدخول',
-  loginButtonLoading: 'جاري تسجيل الدخول...',
+  loginButtonLoading: 'جارٍ تسجيل الدخول...',
+  signupPrompt: 'ليس لديك حساب؟',
+  signupLink: 'أنشئ مؤسسة جديدة',
   defaultError: 'فشل تسجيل الدخول. يرجى التحقق من بياناتك.'
 };
 
@@ -116,6 +118,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             </button>
           </div>
         </form>
+
+        {/* Signup Prompt */}
+        <div className="mt-6 text-center text-sm" dir="rtl">
+          <p className="text-slate-400">
+            {ar.signupPrompt} <a href="/signup" className="font-semibold text-indigo-400 hover:text-indigo-300">{ar.signupLink}</a>
+          </p>
+        </div>
       </div>
     </div>
   );
