@@ -178,3 +178,17 @@ You can switch profiles directly in the top header menu:
 * **Cashier**: خالد المحمد (restricted to POS screen and sales)
 * **Manager**: أحمد العتيبي (has inventory editing, PO creations, and reports access)
 * **Owner**: المالك - أبو أحمد (has full administrative override power and settings customization)
+
+ Prioritizing Tool Usage
+  You can use any of the following default usernames to log in. The password for all of them is  password123 :
+
+  Usernames:
+
+  •  owner  (Owner / المالك)
+  •  manager  (Manager / مدير)
+  •  cashier  (Cashier / كاشير)
+
+  For example, to log in as the owner:
+
+  • Username:  owner 
+  • Password:  password123

@@ -29,14 +29,7 @@ export async function runMigrations() {
       table.string('address').notNullable();
     });
 
-    // Seed default store info
-    await db('store_info').insert({
-      nameAr: 'أسواق النجمة السعيدة',
-      nameEn: 'Happy Star Supermarket',
-      vatNumber: '300078965400003',
-      phone: '+966 50 123 4567',
-      address: 'الرياض، المملكة العربية السعودية',
-    });
+    // Seed default store info is removed to allow first-time setup UI
   }
 
   // 2. Users table
@@ -53,13 +46,7 @@ export async function runMigrations() {
       table.boolean('active').notNullable().defaultTo(true);
     });
 
-    // Seed default users
-    const defaultPassword = await bcrypt.hash('password123', 10);
-    await db('users').insert([
-      { id: '1', username: 'owner', password: defaultPassword, nameAr: 'المالك (أبو أحمد)', nameEn: 'Owner (Abu Ahmed)', role: 'owner', active: true },
-      { id: '2', username: 'manager', password: defaultPassword, nameAr: 'أحمد العتيبي', nameEn: 'Ahmed Al-Otaibi', role: 'manager', active: true },
-      { id: '3', username: 'cashier', password: defaultPassword, nameAr: 'خالد المحمد', nameEn: 'Khalid Al-Muhammed', role: 'cashier', active: true },
-    ]);
+    // Seed default users is removed to allow first-time setup UI
   }
 
   // 3. Products table
@@ -240,6 +227,25 @@ export async function runMigrations() {
     await db('audit_logs').insert([
       { id: 'l1', timestamp: getDateAgo(10), userId: '1', userName: 'المالك (أبو أحمد)', role: 'owner', action: 'STORE_INFO_UPDATE', details: 'Initialized application and set up store configuration.' },
       { id: 'l2', timestamp: getDateAgo(5), userId: '2', userName: 'أحمد العتيبي', role: 'manager', action: 'STOCK_ADJUST', details: 'Added 50 units of Almarai Fresh Milk 1L due to new shipment.' },
+    ]);
+  }
+
+  // 10. Branches table
+  const hasBranches = await db.schema.hasTable('branches');
+  if (!hasBranches) {
+    console.log('Creating branches table...');
+    await db.schema.createTable('branches', (table) => {
+      table.string('id').primary();
+      table.string('nameAr').notNullable();
+      table.string('nameEn').notNullable();
+      table.string('location').notNullable();
+      table.string('status').notNullable().defaultTo('active');
+    });
+
+    // Seed default branches
+    await db('branches').insert([
+      { id: 'b1', nameAr: 'الفرع الرئيسي', nameEn: 'Main Branch', location: 'الرياض، العليا', status: 'active' },
+      { id: 'b2', nameAr: 'فرع الشمال', nameEn: 'North Branch', location: 'الرياض، الملقا', status: 'active' }
     ]);
   }
 

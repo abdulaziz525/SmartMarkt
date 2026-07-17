@@ -1,4 +1,4 @@
-import type { Product, Invoice, Supplier, PurchaseOrder, User, AuditLog, PaymentMethod } from '../types';
+import type { Product, Invoice, Supplier, PurchaseOrder, User, AuditLog, PaymentMethod, Branch } from '../types';
 
 // Store info interface — shared between frontend and backend
 export interface StoreInfo {
@@ -61,18 +61,43 @@ export const apiService = {
     await put('/store-info', { ...info});
   },
 
+  // ── Branches ─────────────────────────────────────────────────────
+  getBranches(): Promise<Branch[]> {
+    return get<Branch[]>('/branches');
+  },
+
+  saveBranch(branch: Branch): Promise<Branch> {
+    return post<Branch>('/branches', { branch });
+  },
+
+  deleteBranch(id: string): Promise<{ success: boolean }> {
+    return del<{ success: boolean }>(`/branches/${id}`, {});
+  },
+
   // ── Users ────────────────────────────────────────────────────────
   getUsers(): Promise<User[]> {
     return get<User[]>('/users');
   },
 
-  // ── Authentication ─────────────────────────────────────────────────
+  // ── Authentication & Setup ─────────────────────────────────────────
+  checkSetupStatus(): Promise<{ isSetupComplete: boolean }> {
+    return get<{ isSetupComplete: boolean }>('/auth/status');
+  },
+
+  setupStore(data: any): Promise<User> {
+    return post<User>('/auth/setup', data);
+  },
+
   login(username: string, password: string): Promise<User> {
     return post<User>('/auth/login', { username, password });
   },
 
   logout(): Promise<{ message: string }> {
     return post<{ message: string }>('/auth/logout', {});
+  },
+
+  register(username: string, email: string, id: string, password: string): Promise<User> {
+    return post<User>('/auth/register', { username, email, id, password });
   },
 
   verifyAuth(): Promise<User> {

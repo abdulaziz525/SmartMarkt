@@ -8,7 +8,6 @@ import {
   History,
   Settings,
   Globe,
-  User,
   Plus,
   Trash2,
   Edit3,
@@ -28,6 +27,9 @@ import {
 import QRCode from 'qrcode';
 import { apiService } from './services/api';
 import { LoginPage } from './features/auth/LoginPage';
+import { SetupPage } from './features/auth/SetupPage';
+import { BranchManagement } from './components/BranchManagement';
+import { usePermissions } from './hooks/usePermissions';
 import type { StoreInfo } from './services/api';
 import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod } from './types';
 
@@ -47,8 +49,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser>({} as AppUser);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
-  const [usersList, setUsersList] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // POS State
@@ -86,13 +88,21 @@ export default function App() {
   // Barcode input focus ref
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
+  // RBAC permissions hook
+  const permissions = usePermissions(isAuthenticated ? currentUser : null);
+
   // Verify Auth on mount
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const user = await apiService.verifyAuth();
-        setCurrentUser(user);
-        setIsAuthenticated(true);
+        const setupRes = await apiService.checkSetupStatus();
+        setIsSetupComplete(setupRes.isSetupComplete);
+
+        if (setupRes.isSetupComplete) {
+          const user = await apiService.verifyAuth();
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+        }
       } catch (err) {
         setIsAuthenticated(false);
       } finally {
@@ -105,22 +115,28 @@ export default function App() {
   // Fetch all data from the backend API
   const refreshData = async () => {
     try {
-      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData] = await Promise.all([
+      const [
+        productsRes,
+        invoicesRes,
+        suppliersRes,
+        posRes,
+        logsRes,
+        storeRes
+      ] = await Promise.allSettled([
         apiService.getProducts(),
         apiService.getInvoices(),
         apiService.getSuppliers(),
         apiService.getPurchaseOrders(),
         apiService.getAuditLogs(),
         apiService.getStoreInfo(),
-        apiService.getUsers(),
       ]);
-      setProducts(productsData);
-      setInvoices(invoicesData);
-      setSuppliers(suppliersData);
-      setPurchaseOrders(posData);
-      setLogs(logsData);
-      if (storeData) setStoreInfo(storeData);
-      setUsersList(usersData);
+
+      if (productsRes.status === 'fulfilled') setProducts(productsRes.value);
+      if (invoicesRes.status === 'fulfilled') setInvoices(invoicesRes.value);
+      if (suppliersRes.status === 'fulfilled') setSuppliers(suppliersRes.value);
+      if (posRes.status === 'fulfilled') setPurchaseOrders(posRes.value);
+      if (logsRes.status === 'fulfilled') setLogs(logsRes.value);
+      if (storeRes.status === 'fulfilled' && storeRes.value) setStoreInfo(storeRes.value);
     } catch (err) {
       console.error('Failed to refresh data from API:', err);
     }
@@ -590,18 +606,7 @@ export default function App() {
     return diffDays <= 7; // Alert if within 7 days
   });
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-        <div className="text-indigo-400 font-medium">
-          {lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}
-        </div>
-      </div>
-    );
-  }
-
-  if (isAuthLoading) {
+  if (isAuthLoading || isSetupComplete === null) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-900 text-slate-200">
         <div className="flex flex-col items-center gap-4">
@@ -612,11 +617,29 @@ export default function App() {
     );
   }
 
+  if (isSetupComplete === false) {
+    return <SetupPage onSetupComplete={() => {
+      setIsSetupComplete(true);
+      window.location.reload();
+    }} />;
+  }
+
   if (!isAuthenticated) {
     return <LoginPage onLogin={() => {
       setIsAuthenticated(true);
       window.location.reload();
     }} />;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+        <div className="text-indigo-400 font-medium">
+          {lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -680,89 +703,103 @@ export default function App() {
         {/* Navigation Sidebar */}
         <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
           <nav className="flex-1 p-4 space-y-1">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'dashboard'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <LayoutDashboard className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
-            </button>
+            {(permissions.isOwner || permissions.role === 'manager') && (
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'dashboard'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <LayoutDashboard className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('pos')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'pos'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <ShoppingBag className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
-            </button>
+            {permissions.canAccessPOS && (
+              <button
+                onClick={() => setActiveTab('pos')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'pos'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <ShoppingBag className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'inventory'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Package className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
-            </button>
+            {permissions.canManageInventory && (
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'inventory'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Package className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('suppliers')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'suppliers'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Truck className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
-            </button>
+            {permissions.canManageSuppliers && (
+              <button
+                onClick={() => setActiveTab('suppliers')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'suppliers'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Truck className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'reports'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <FileText className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
-            </button>
+            {(permissions.isOwner || permissions.role === 'manager') && (
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'reports'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <FileText className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'audit'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <History className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
-            </button>
+            {permissions.isOwner && (
+              <button
+                onClick={() => setActiveTab('audit')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'audit'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <History className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'settings'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Settings className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
-            </button>
+            {permissions.canManageStoreSettings && (
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'settings'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Settings className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
+              </button>
+            )}
           </nav>
 
           {/* Quick Stats Sidebar footer */}
@@ -1865,6 +1902,13 @@ export default function App() {
                   </button>
                 </form>
               </div>
+
+              {/* Branch Management Section */}
+              {permissions.canManageBranches && (
+                <div className="max-w-4xl">
+                  <BranchManagement lang={lang} />
+                </div>
+              )}
             </div>
           )}
 

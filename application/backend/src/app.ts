@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { runMigrations } from './models/migrations.js';
 import { authMiddleware } from './middlewares/authMiddleware.js';
+import { checkPermissionMiddleware } from './middlewares/checkPermissionMiddleware.js';
 import authRoutes from './routes/auth.routes.js';
 import statusController from './controllers/statusController.js';
 import storeController from './controllers/storeController.js';
@@ -13,6 +14,7 @@ import supplierController from './controllers/supplierController.js';
 import purchaseOrderController from './controllers/purchaseOrderController.js';
 import invoiceController from './controllers/invoiceController.js';
 import auditLogController from './controllers/auditLogController.js';
+import branchController from './controllers/branchController.js';
 
 dotenv.config();
 
@@ -30,14 +32,16 @@ app.use(cookieParser());
 app.use('/api', authRoutes);
 
 // Protected API Routes
-app.use('/api', authMiddleware, statusController);
-app.use('/api', authMiddleware, storeController);
-app.use('/api', authMiddleware, userController);
-app.use('/api', authMiddleware, productController);
-app.use('/api', authMiddleware, supplierController);
-app.use('/api', authMiddleware, purchaseOrderController);
-app.use('/api', authMiddleware, invoiceController);
-app.use('/api', authMiddleware, auditLogController);
+app.use('/api', authMiddleware, checkPermissionMiddleware);
+app.use('/api', statusController);
+app.use('/api', storeController);
+app.use('/api', userController);
+app.use('/api', productController);
+app.use('/api', supplierController);
+app.use('/api', purchaseOrderController);
+app.use('/api', invoiceController);
+app.use('/api', auditLogController);
+app.use('/api', branchController);
 
 async function startServer() {
   try {

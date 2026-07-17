@@ -6,9 +6,9 @@
     "backend"
   ],
   "scripts": {
-    "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\"",
-    "dev:backend": "npm run dev --workspace=backend",
-    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev": "concurrently -c \"cyan,magenta\" -n \"backend,frontend\" \"npm run dev:backend --silent\" \"npm run dev:frontend --silent\"",
+    "dev:backend": "npm run dev --workspace=backend --silent",
+    "dev:frontend": "npm run dev --workspace=frontend --silent",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
     "build": "npm run build:frontend && npm run build:backend"
