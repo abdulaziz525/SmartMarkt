@@ -1,0 +1,17 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;\red25\green60\blue255;}
+{\*\expandedcolortbl;;\cssrgb\c12594\c35385\c100000;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 Process:\
+Store user information, when a user signs up, their information is handled by the backend and stored in your database.\
+  Here's exactly what happens step-by-step:\
+\
+  1. The Route: The frontend sends a request to the backend's \cf2 POST /auth/register\cf0  route (located in\
+  \cf2 backend/src/routes/auth.routes.ts\cf0 ).\
+  2. Processing Data: The backend receives the \cf2 username\cf0 , \cf2 email\cf0 , \cf2 id\cf0 , and \cf2 password\cf0 . It hashes the\
+  password securely using \cf2 bcrypt\cf0  and formats the rest of the information.\
+  3. Database Insertion: The user's information is then inserted into the \cf2 users\cf0  table of your\
+  database using the \cf2 knex\cf0  query builder.}
