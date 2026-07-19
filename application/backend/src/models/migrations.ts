@@ -83,6 +83,30 @@ export async function runMigrations() {
       table.boolean('active').notNullable().defaultTo(true);
       table.string('organization_id').notNullable().references('id').inTable('organizations').onDelete('CASCADE');
       table.string('store_id').nullable().references('id').inTable('stores').onDelete('SET NULL');
+      table.text('store_ids').nullable(); // JSON array of store IDs for multi-branch managers
+    });
+  }
+
+  // 3b. Ensure users table has required multi-tenancy columns (handles legacy/stale schemas)
+  const hasOrgIdCol = await db.schema.hasColumn('users', 'organization_id');
+  if (!hasOrgIdCol) {
+    console.log('Adding organization_id column to existing users table...');
+    await db.schema.alterTable('users', (table) => {
+      table.string('organization_id').nullable();
+    });
+  }
+  const hasStoreIdCol = await db.schema.hasColumn('users', 'store_id');
+  if (!hasStoreIdCol) {
+    console.log('Adding store_id column to existing users table...');
+    await db.schema.alterTable('users', (table) => {
+      table.string('store_id').nullable();
+    });
+  }
+  const hasStoreIdsCol = await db.schema.hasColumn('users', 'store_ids');
+  if (!hasStoreIdsCol) {
+    console.log('Adding store_ids column to existing users table (for multi-branch managers)...');
+    await db.schema.alterTable('users', (table) => {
+      table.text('store_ids').nullable(); // JSON array of store IDs
     });
   }
 
@@ -105,7 +129,15 @@ export async function runMigrations() {
       table.boolean('isPerishable').notNullable().defaultTo(false);
       table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
       table.unique(['barcode', 'store_id']);
+      table.string('supplierId').nullable();
     });
+  } else {
+    const hasSupplierId = await db.schema.hasColumn('products', 'supplierId');
+    if (!hasSupplierId) {
+      await db.schema.alterTable('products', table => {
+        table.string('supplierId').nullable();
+      });
+    }
   }
 
   // 5. Suppliers table (adding store_id)
@@ -138,7 +170,15 @@ export async function runMigrations() {
       table.string('receivedDate').nullable();
       table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
       table.unique(['poNumber', 'store_id']);
+      table.string('receivedBy').nullable();
     });
+  } else {
+    const hasReceivedBy = await db.schema.hasColumn('purchase_orders', 'receivedBy');
+    if (!hasReceivedBy) {
+      await db.schema.alterTable('purchase_orders', table => {
+        table.string('receivedBy').nullable();
+      });
+    }
   }
 
   // 7. Purchase Order Items table (adding store_id)

@@ -40,6 +40,7 @@ router.post('/products', async (req, res) => {
       lowStockThreshold: product.lowStockThreshold,
       expiryDate: product.expiryDate || null,
       isPerishable: product.isPerishable ? 1 : 0,
+      supplierId: product.supplierId || null,
       store_id: req.storeId
     };
 

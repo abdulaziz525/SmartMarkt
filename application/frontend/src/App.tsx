@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { SignupFlow } from './features/auth/SignupFlow';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -23,15 +25,26 @@ import {
   Wallet,
   ArrowRightLeft,
   Download,
-  Upload
+  Upload,
+  Building2,
+  Users,
+  UserPlus,
+  Shield,
+  ToggleLeft,
+  ToggleRight,
+  CheckCircle2,
+  MapPin,
+  Store,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { apiService } from './services/api';
 import { LoginPage } from './features/auth/LoginPage';
+import { useStore } from './context/StoreContext';
 import type { StoreInfo } from './services/api';
-import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod } from './types';
+import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod, Branch } from './types';
 
 export default function App() {
+  const { activeStoreId, fetchStores } = useStore();
   // Localization & Theme state
   const [lang, setLang] = useState<'ar' | 'en'>('ar');
   
@@ -49,7 +62,32 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [usersList, setUsersList] = useState<AppUser[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Settings sub-tab
+  const [settingsTab, setSettingsTab] = useState<'store' | 'branches' | 'employees'>('store');
+
+  // Employee modal state
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<AppUser | null>(null);
+  const [empForm, setEmpForm] = useState({
+    fullName: '',
+    username: '',
+    password: '',
+    role: 'cashier' as 'manager' | 'cashier',
+    store_ids: [] as string[],
+  });
+
+  // Branch modal state
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [branchForm, setBranchForm] = useState({
+    nameAr: '',
+    nameEn: '',
+    location: '',
+    status: 'active' as 'active' | 'inactive',
+  });
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -76,6 +114,9 @@ export default function App() {
   const [selectedPoSupplier, setSelectedPoSupplier] = useState<string>('');
   const [poItems, setPoItems] = useState<{ product: Product; costPrice: number; quantity: number }[]>([]);
   const [poProductSearch, setPoProductSearch] = useState<string>('');
+  const [poScannerInput, setPoScannerInput] = useState<string>('');
+  const [activePoReceipt, setActivePoReceipt] = useState<PurchaseOrder | null>(null);
+  const [poSelectedBranch, setPoSelectedBranch] = useState<string>('');
 
   // Reports State
   const [reportRange, setReportRange] = useState<'today' | '7days' | 'month'>('7days');
@@ -86,33 +127,22 @@ export default function App() {
   // Barcode input focus ref
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // Verify Auth on mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await apiService.verifyAuth();
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-      } catch (err) {
-        setIsAuthenticated(false);
-      } finally {
-        setIsAuthLoading(false);
-      }
-    };
-    checkAuth();
-  }, []);
-
   // Fetch all data from the backend API
   const refreshData = async () => {
     try {
-      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData] = await Promise.all([
-        apiService.getProducts(),
-        apiService.getInvoices(),
-        apiService.getSuppliers(),
-        apiService.getPurchaseOrders(),
-        apiService.getAuditLogs(),
-        apiService.getStoreInfo(),
-        apiService.getUsers(),
+      const safeFetch = async <T,>(promise: Promise<T>, fallback: T): Promise<T> => {
+        try { return await promise; } catch { return fallback; }
+      };
+
+      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData, branchesData] = await Promise.all([
+        safeFetch(apiService.getProducts(), []),
+        safeFetch(apiService.getInvoices(), []),
+        safeFetch(apiService.getSuppliers(), []),
+        safeFetch(apiService.getPurchaseOrders(), []),
+        safeFetch(apiService.getAuditLogs(), []),
+        safeFetch(apiService.getStoreInfo(), null),
+        safeFetch(apiService.getUsers(), []),
+        safeFetch(apiService.getBranches(), []),
       ]);
       setProducts(productsData);
       setInvoices(invoicesData);
@@ -121,18 +151,37 @@ export default function App() {
       setLogs(logsData);
       if (storeData) setStoreInfo(storeData);
       setUsersList(usersData);
+      setBranches(branchesData);
     } catch (err) {
       console.error('Failed to refresh data from API:', err);
     }
   };
 
+  // Verify Auth on mount, then load store context and all data
   useEffect(() => {
-    const initApp = async () => {
-      setIsLoading(true);
-      await refreshData();
-      setIsLoading(false);
+    const checkAuth = async () => {
+      try {
+        const user = await apiService.verifyAuth();
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+        if (user.role === 'cashier') {
+          setActiveTab('pos');
+        } else {
+          setActiveTab('dashboard');
+        }
+        // fetchStores sets activeStoreId in localStorage BEFORE refreshData
+        // so that the x-store-id header is available for getStoreInfo() etc.
+        await fetchStores();
+        setIsLoading(true);
+        await refreshData();
+      } catch (err) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsAuthLoading(false);
+        setIsLoading(false);
+      }
     };
-    initApp();
+    checkAuth();
   }, []);
 
   // Set document direction
@@ -433,17 +482,13 @@ export default function App() {
   };
 
   const handlePoSubmit = async () => {
-    if (!selectedPoSupplier) {
-      alert(lang === 'ar' ? 'الرجاء اختيار مورد' : 'Please select a supplier');
-      return;
-    }
     if (poItems.length === 0) {
       alert(lang === 'ar' ? 'الرجاء إضافة منتجات لأمر الشراء' : 'Please add products to the PO');
       return;
     }
 
-    const supplier = suppliers.find(s => s.id === selectedPoSupplier);
-    if (!supplier) return;
+    const supplier = suppliers.find(s => s.id === selectedPoSupplier) || { id: 'various', name: lang === 'ar' ? 'موردين متعددين' : 'Various Suppliers' };
+    const targetStoreId = poSelectedBranch || activeStoreId || '';
 
     const total = poItems.reduce((acc, item) => acc + (item.costPrice * item.quantity), 0);
     const newPo: PurchaseOrder = {
@@ -452,6 +497,7 @@ export default function App() {
       date: new Date().toISOString(),
       supplierId: supplier.id,
       supplierName: supplier.name,
+      store_id: targetStoreId,
       items: poItems.map(item => ({
         productId: item.product.id,
         productNameAr: item.product.nameAr,
@@ -467,6 +513,7 @@ export default function App() {
     await apiService.savePurchaseOrder(newPo);
     setPoItems([]);
     setSelectedPoSupplier('');
+    setPoSelectedBranch('');
     setIsPoModalOpen(false);
     await refreshData();
   };
@@ -474,6 +521,40 @@ export default function App() {
   const handlePoReceive = async (poId: string) => {
     await apiService.receivePurchaseOrder(poId);
     await refreshData();
+  };
+
+  const handleScannerReceive = async () => {
+    const input = poScannerInput.trim();
+    if (!input) return;
+
+    // First try: Is it a PO Number?
+    const foundPo = purchaseOrders.find(po => po.poNumber.toLowerCase() === input.toLowerCase() && po.status === 'pending');
+    if (foundPo) {
+      await handlePoReceive(foundPo.id);
+      setPoScannerInput('');
+      alert(lang === 'ar' ? `تم استلام الطلب: ${foundPo.poNumber}` : `PO Received: ${foundPo.poNumber}`);
+      return;
+    }
+
+    // Second try: Is it a product barcode?
+    // Find a pending PO that contains a product with this barcode.
+    const poWithProduct = purchaseOrders.find(po => 
+      po.status === 'pending' && 
+      po.items.some(item => {
+        const prod = products.find(p => p.id === item.productId);
+        return prod && prod.barcode === input;
+      })
+    );
+
+    if (poWithProduct) {
+      await handlePoReceive(poWithProduct.id);
+      setPoScannerInput('');
+      alert(lang === 'ar' ? `تم استلام الطلب (${poWithProduct.poNumber}) بنجاح بناءً على المنتج الممسوح` : `PO Received (${poWithProduct.poNumber}) successfully based on scanned product`);
+      return;
+    }
+
+    alert(lang === 'ar' ? 'لم يتم العثور على طلب معلق بهذا الباركود' : 'No pending PO found for this barcode');
+    setPoScannerInput('');
   };
 
   // ----------------------------------------------------
@@ -613,10 +694,17 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={() => {
+    const loginPage = <LoginPage onLogin={() => {
       setIsAuthenticated(true);
       window.location.reload();
     }} />;
+    return (
+      <Routes>
+        <Route path="/signup" element={<SignupFlow />} />
+        <Route path="/login" element={loginPage} />
+        <Route path="*" element={loginPage} />
+      </Routes>
+    );
   }
 
   return (
@@ -627,13 +715,15 @@ export default function App() {
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <span className="font-extrabold text-lg text-white">S</span>
           </div>
-          <div>
+          <div className="flex flex-col">
             <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
               {lang === 'ar' ? storeInfo?.nameAr : storeInfo?.nameEn}
             </h1>
-            <p className="text-xs text-slate-400 font-mono">
-              VAT: {storeInfo?.vatNumber}
-            </p>
+            <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
+              <span>VAT: {storeInfo?.vatNumber}</span>
+              <span className="text-slate-600">•</span>
+              <span>{new Date().toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            </div>
           </div>
         </div>
 
@@ -680,89 +770,103 @@ export default function App() {
         {/* Navigation Sidebar */}
         <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
           <nav className="flex-1 p-4 space-y-1">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'dashboard'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <LayoutDashboard className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
-            </button>
+            {hasAccess(['owner', 'manager']) && (
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'dashboard'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <LayoutDashboard className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('pos')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'pos'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <ShoppingBag className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
-            </button>
+            {hasAccess(['cashier']) && (
+              <button
+                onClick={() => setActiveTab('pos')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'pos'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <ShoppingBag className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'نقطة البيع الكاشير' : 'POS Sales Screen'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'inventory'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Package className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
-            </button>
+            {hasAccess(['owner', 'manager']) && (
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'inventory'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Package className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'إدارة المخزون' : 'Inventory Stock'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('suppliers')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'suppliers'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Truck className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
-            </button>
+            {hasAccess(['owner', 'manager', 'cashier']) && (
+              <button
+                onClick={() => setActiveTab('suppliers')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'suppliers'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Truck className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'الموردين وأوامر الشراء' : 'Suppliers & POs'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'reports'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <FileText className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
-            </button>
+            {hasAccess(['owner', 'manager']) && (
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'reports'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <FileText className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'التقارير والمحاسبة' : 'Reports & Accounting'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'audit'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <History className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
-            </button>
+            {hasAccess(['owner', 'manager']) && (
+              <button
+                onClick={() => setActiveTab('audit')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'audit'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <History className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'سجل العمليات والرقابة' : 'Audit Logs'}</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                activeTab === 'settings'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Settings className="h-5 w-5" />
-              <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
-            </button>
+            {hasAccess(['owner']) && (
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                  activeTab === 'settings'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Settings className="h-5 w-5" />
+                <span>{lang === 'ar' ? 'إعدادات النظام' : 'Settings'}</span>
+              </button>
+            )}
           </nav>
 
           {/* Quick Stats Sidebar footer */}
@@ -785,19 +889,6 @@ export default function App() {
               ======================================================== */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">
-                    {lang === 'ar' ? 'مرحباً بك في لوحة تحكم SmartMarkt' : 'Welcome to SmartMarkt'}
-                  </h2>
-                  <p className="text-sm text-slate-400">
-                    {lang === 'ar' ? 'ملخص مبيعات اليوم والوضع الحالي للمتجر' : 'Quick summary of today\'s activities and metrics.'}
-                  </p>
-                </div>
-                <div className="text-sm text-slate-400 bg-slate-900 px-4 py-2 rounded-lg border border-slate-800 font-mono">
-                  {new Date().toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                </div>
-              </div>
 
               {/* Numerical Metrics Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1301,6 +1392,7 @@ export default function App() {
                         unit: 'pcs',
                         lowStockThreshold: 5,
                         isPerishable: false,
+                        supplierId: '',
                       });
                       setIsProductModalOpen(true);
                     }}
@@ -1478,75 +1570,39 @@ export default function App() {
               ======================================================== */}
           {activeTab === 'suppliers' && (
             <div className="space-y-6">
-              {/* Suppliers List Area */}
-              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'قائمة الموردين المعتمدين' : 'Registered Suppliers'}</h3>
-                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة حسابات الدفع للشركات الموردة للمخازن' : 'Manage supply lines and balances payable'}</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setEditingSupplier(null);
-                      setIsSupplierModalOpen(true);
+              {/* PO Receiving Scanner */}
+              {currentUser?.role === 'cashier' && (
+                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
+                  <h3 className="font-bold text-white flex items-center gap-2">
+                    <Barcode className="h-5 w-5 text-indigo-400" />
+                    {lang === 'ar' ? 'مسح الفاتورة أو المنتجات لتأكيد الاستلام' : 'Scan Invoice or Products to Receive'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {lang === 'ar' 
+                      ? 'قم بمسح باركود فاتورة المورد (رقم الطلب) أو باركود المنتجات لتأكيد استلام الطلب المعلق تلقائياً.' 
+                      : 'Scan the supplier invoice barcode (PO number) or product barcodes to automatically receive a pending PO.'}
+                  </p>
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleScannerReceive();
                     }}
-                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded-lg font-bold transition shadow"
+                    className="flex gap-2"
                   >
-                    <Plus className="h-4 w-4" />
-                    <span>{lang === 'ar' ? 'إضافة مورد' : 'New Supplier'}</span>
-                  </button>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={poScannerInput}
+                      onChange={(e) => setPoScannerInput(e.target.value)}
+                      placeholder={lang === 'ar' ? 'امسح الباركود هنا...' : 'Scan barcode here...'}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500 text-white"
+                    />
+                    <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition">
+                      {lang === 'ar' ? 'تأكيد' : 'Enter'}
+                    </button>
+                  </form>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {suppliers.map((s, idx) => (
-                    <div key={idx} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-4">
-                      <div>
-                        <h4 className="font-bold text-slate-200 text-sm">{s.name}</h4>
-                        <div className="text-xs text-slate-500 font-mono mt-1">{s.phone} | {s.email}</div>
-                        {s.vatNumber && (
-                          <div className="text-[10px] text-slate-500 font-mono">VAT: {s.vatNumber}</div>
-                        )}
-                      </div>
-                      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-semibold">{lang === 'ar' ? 'الحساب المستحق للمورد:' : 'Accounts Payable:'}</div>
-                          <div className={`font-mono text-sm font-bold ${s.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                            {s.balance.toFixed(2)} SAR
-                          </div>
-                        </div>
-                        <div className="flex gap-1.5">
-                          {s.balance > 0 && (
-                            <button
-                              onClick={() => {
-                                const payAmt = prompt(lang === 'ar' ? 'أدخل المبلغ المسدد للمورد:' : 'Enter payment amount:', s.balance.toString());
-                                if (payAmt) handleSupplierPayoff(s.id, parseFloat(payAmt) || 0);
-                              }}
-                              className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded px-2.5 py-1 font-bold transition"
-                            >
-                              {lang === 'ar' ? 'تسديد حساب' : 'Settle'}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setEditingSupplier(s);
-                              setIsSupplierModalOpen(true);
-                            }}
-                            className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 rounded p-1 transition"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleSupplierDelete(s.id)}
-                            className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded p-1 transition"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
 
               {/* Purchase Orders Section */}
               <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
@@ -1555,13 +1611,15 @@ export default function App() {
                     <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'أوامر الشراء والتوريد' : 'Purchase Orders (PO)'}</h3>
                     <p className="text-xs text-slate-400">{lang === 'ar' ? 'متابعة شحنات البضائع المستلمة لتغذية المخزون' : 'Track incoming supplier shipments to update warehouse stock'}</p>
                   </div>
-                  <button
-                    onClick={() => setIsPoModalOpen(true)}
-                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs px-4 py-2 rounded-lg font-bold transition shadow"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>{lang === 'ar' ? 'إنشاء أمر توريد جديد' : 'Create Purchase Order'}</span>
-                  </button>
+                  {currentUser?.role !== 'cashier' && (
+                    <button
+                      onClick={() => setIsPoModalOpen(true)}
+                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs px-4 py-2 rounded-lg font-bold transition shadow"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>{lang === 'ar' ? 'إنشاء أمر توريد جديد' : 'Create Purchase Order'}</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1597,21 +1655,112 @@ export default function App() {
                             </span>
                           </td>
                           <td className="p-3 text-center">
-                            {po.status === 'pending' ? (
-                              <button
-                                onClick={() => handlePoReceive(po.id)}
-                                className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded px-3 py-1 transition"
-                              >
-                                {lang === 'ar' ? 'تأكيد الاستلام' : 'Receive PO'}
-                              </button>
-                            ) : (
-                              <span className="text-xs text-slate-500 font-mono">{po.receivedDate ? new Date(po.receivedDate).toLocaleDateString(lang==='ar'?'ar-SA':'en-US') : ''}</span>
-                            )}
+                            <div className="flex items-center justify-center gap-1.5">
+                              {po.status === 'pending' ? (
+                                currentUser?.role === 'cashier' ? (
+                                  <span className="text-xs text-slate-500 italic">{lang === 'ar' ? 'امسح الباركود للتأكيد' : 'Scan to Receive'}</span>
+                                ) : (
+                                  <button
+                                    onClick={() => handlePoReceive(po.id)}
+                                    className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded px-3 py-1 transition"
+                                  >
+                                    {lang === 'ar' ? 'تأكيد الاستلام' : 'Receive PO'}
+                                  </button>
+                                )
+                              ) : (
+                                <span className="text-xs text-slate-500 font-mono">{po.receivedDate ? new Date(po.receivedDate).toLocaleDateString(lang==='ar'?'ar-SA':'en-US') : ''}</span>
+                              )}
+                              {currentUser?.role !== 'cashier' && (
+                                <button
+                                  onClick={() => setActivePoReceipt(po)}
+                                  className="h-7 w-7 text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 rounded-lg flex items-center justify-center transition"
+                                  title={lang === 'ar' ? 'عرض الفاتورة' : 'View PO Receipt'}
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Suppliers List Area */}
+              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'قائمة الموردين المعتمدين' : 'Registered Suppliers'}</h3>
+                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة حسابات الدفع للشركات الموردة للمخازن' : 'Manage supply lines and balances payable'}</p>
+                  </div>
+                  {currentUser?.role !== 'cashier' && (
+                    <button
+                      onClick={() => {
+                        setEditingSupplier(null);
+                        setIsSupplierModalOpen(true);
+                      }}
+                      className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded-lg font-bold transition shadow"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>{lang === 'ar' ? 'إضافة مورد' : 'New Supplier'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {suppliers.map((s, idx) => (
+                    <div key={idx} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-4">
+                      <div>
+                        <h4 className="font-bold text-slate-200 text-sm">{s.name}</h4>
+                        <div className="text-xs text-slate-500 font-mono mt-1">{s.phone} | {s.email}</div>
+                        {s.vatNumber && (
+                          <div className="text-[10px] text-slate-500 font-mono">VAT: {s.vatNumber}</div>
+                        )}
+                      </div>
+                      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-semibold">{lang === 'ar' ? 'الحساب المستحق للمورد:' : 'Accounts Payable:'}</div>
+                          <div className={`font-mono text-sm font-bold ${s.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {s.balance.toFixed(2)} SAR
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          {s.balance > 0 && (
+                            <button
+                              onClick={() => {
+                                const payAmt = prompt(lang === 'ar' ? 'أدخل المبلغ المسدد للمورد:' : 'Enter payment amount:', s.balance.toString());
+                                if (payAmt) handleSupplierPayoff(s.id, parseFloat(payAmt) || 0);
+                              }}
+                              className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded px-2.5 py-1 font-bold transition"
+                            >
+                              {lang === 'ar' ? 'تسديد حساب' : 'Settle'}
+                            </button>
+                          )}
+                          {currentUser?.role !== 'cashier' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditingSupplier(s);
+                                  setIsSupplierModalOpen(true);
+                                }}
+                                className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 rounded p-1 transition"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleSupplierDelete(s.id)}
+                                className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded p-1 transition"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1777,93 +1926,604 @@ export default function App() {
               ======================================================== */}
           {activeTab === 'settings' && (
             <div className="space-y-6">
-              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm max-w-2xl space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إعدادات المؤسسة والفواتير' : 'Supermarket Store Information'}</h3>
-                  <p className="text-xs text-slate-400">{lang === 'ar' ? 'البيانات الأساسية التي تظهر في فواتير ZATCA وفي الباركود الثنائي' : 'Essential settings injected in ZATCA compliant e-invoices'}</p>
+
+              {/* ── Settings Sub-Tabs ── */}
+              <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
+                {([
+                  { key: 'store',     labelAr: 'إعدادات المتجر',   labelEn: 'Store Info',  Icon: Store },
+                  { key: 'branches',  labelAr: 'إدارة الفروع',      labelEn: 'Branches',    Icon: Building2 },
+                  { key: 'employees', labelAr: 'إدارة الموظفين',    labelEn: 'Employees',   Icon: Users },
+                ] as const).map(({ key, labelAr, labelEn, Icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setSettingsTab(key)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                      settingsTab === key
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{lang === 'ar' ? labelAr : labelEn}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ══════════════════════════════════
+                  TAB: STORE INFO
+              ══════════════════════════════════ */}
+              {settingsTab === 'store' && (
+                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm max-w-2xl space-y-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إعدادات المؤسسة والفواتير' : 'Store & Invoice Settings'}</h3>
+                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'البيانات الأساسية التي تظهر في فواتير ZATCA وفي الباركود الثنائي' : 'Essential settings injected in ZATCA compliant e-invoices'}</p>
+                  </div>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!hasAccess(['owner'])) {
+                        alert(lang === 'ar' ? 'تعديل بيانات المتجر متاح للمالك فقط!' : 'Store changes restricted to owner!');
+                        return;
+                      }
+                      const formData = new FormData(e.currentTarget);
+                      const info: StoreInfo = {
+                        nameAr: formData.get('nameAr') as string,
+                        nameEn: formData.get('nameEn') as string,
+                        vatNumber: formData.get('vatNumber') as string,
+                        phone: formData.get('phone') as string,
+                        address: formData.get('address') as string,
+                      };
+                      await apiService.updateStoreInfo(info);
+                      setStoreInfo(info);
+                      alert(lang === 'ar' ? 'تم حفظ التعديلات بنجاح!' : 'Store configuration updated successfully!');
+                    }}
+                    className="space-y-4 text-slate-300 text-sm"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالعربية):' : 'Store Name (Arabic):'}</label>
+                        <input type="text" name="nameAr" defaultValue={storeInfo?.nameAr || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالإنجليزية):' : 'Store Name (English):'}</label>
+                        <input type="text" name="nameEn" defaultValue={storeInfo?.nameEn || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="font-bold">{lang === 'ar' ? 'الرقم الضريبي (15 خانة):' : 'VAT Registration No (15 digits):'}</label>
+                        <input type="text" name="vatNumber" maxLength={15} defaultValue={storeInfo?.vatNumber || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-bold">{lang === 'ar' ? 'رقم الهاتف:' : 'Phone Contact:'}</label>
+                        <input type="text" name="phone" defaultValue={storeInfo?.phone || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold">{lang === 'ar' ? 'العنوان الجغرافي:' : 'Address Location:'}</label>
+                      <input type="text" name="address" defaultValue={storeInfo?.address || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                    </div>
+                    <button type="submit" className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition">
+                      {lang === 'ar' ? 'حفظ إعدادات المؤسسة' : 'Save Store Details'}
+                    </button>
+                  </form>
                 </div>
+              )}
 
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!hasAccess(['owner'])) {
-                      alert(lang === 'ar' ? 'تعديل بيانات المتجر متاح للمالك فقط!' : 'Store changes restricted to owner!');
-                      return;
-                    }
-                    const formData = new FormData(e.currentTarget);
-                    const info: StoreInfo = {
-                      nameAr: formData.get('nameAr') as string,
-                      nameEn: formData.get('nameEn') as string,
-                      vatNumber: formData.get('vatNumber') as string,
-                      phone: formData.get('phone') as string,
-                      address: formData.get('address') as string,
-                    };
-                    await apiService.updateStoreInfo(info);
-                    setStoreInfo(info);
-                    alert(lang === 'ar' ? 'تم حفظ التعديلات بنجاح!' : 'Store configuration updated successfully!');
-                  }}
-                  className="space-y-4 text-slate-300 text-sm"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* ══════════════════════════════════
+                  TAB: BRANCHES
+              ══════════════════════════════════ */}
+              {settingsTab === 'branches' && (
+                <div className="space-y-4 max-w-4xl">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إدارة الفروع' : 'Branch Management'}</h3>
+                      <p className="text-xs text-slate-400">{lang === 'ar' ? `${branches.length} فرع مسجل في المؤسسة` : `${branches.length} branch(es) in your organization`}</p>
+                    </div>
+                    {hasAccess(['owner']) && (
+                      <button
+                        onClick={() => {
+                          setEditingBranch(null);
+                          setBranchForm({ nameAr: '', nameEn: '', location: '', status: 'active' });
+                          setIsBranchModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20 text-sm"
+                      >
+                        <Plus className="h-4 w-4" />
+                        {lang === 'ar' ? 'إضافة فرع جديد' : 'Add Branch'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Branches List */}
+                  {branches.length === 0 ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+                      <Building2 className="h-12 w-12 text-slate-700 mx-auto mb-3" />
+                      <p className="text-slate-400">{lang === 'ar' ? 'لا يوجد فروع مسجلة بعد' : 'No branches registered yet'}</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {branches.map((branch) => (
+                        <div key={branch.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between hover:border-slate-700 transition group">
+                          <div className="flex items-center gap-4">
+                            <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${branch.status === 'active' ? 'bg-emerald-500/10' : 'bg-slate-800'}`}>
+                              <Building2 className={`h-5 w-5 ${branch.status === 'active' ? 'text-emerald-400' : 'text-slate-500'}`} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-white">{lang === 'ar' ? branch.nameAr : branch.nameEn}</p>
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${branch.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                                  {branch.status === 'active' ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'معطل' : 'Inactive')}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <MapPin className="h-3 w-3 text-slate-500" />
+                                <p className="text-xs text-slate-400">{branch.location}</p>
+                              </div>
+                            </div>
+                          </div>
+                          {hasAccess(['owner']) && (
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                              <button
+                                onClick={() => {
+                                  setEditingBranch(branch);
+                                  setBranchForm({ nameAr: branch.nameAr, nameEn: branch.nameEn, location: branch.location, status: branch.status });
+                                  setIsBranchModalOpen(true);
+                                }}
+                                className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-400 transition"
+                                title={lang === 'ar' ? 'تعديل' : 'Edit'}
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(lang === 'ar' ? `هل تريد حذف الفرع "${branch.nameAr}"؟ سيتم حذف جميع بياناته.` : `Delete branch "${branch.nameEn}"? All data will be removed.`)) return;
+                                  await apiService.deleteBranch(branch.id);
+                                  await refreshData();
+                                }}
+                                className="p-2 rounded-lg bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 transition"
+                                title={lang === 'ar' ? 'حذف' : 'Delete'}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ══════════════════════════════════
+                  TAB: EMPLOYEES
+              ══════════════════════════════════ */}
+              {settingsTab === 'employees' && (
+                <div className="space-y-4 max-w-4xl">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إدارة الموظفين' : 'Employee Management'}</h3>
+                      <p className="text-xs text-slate-400">
+                        {lang === 'ar'
+                          ? `${usersList.filter(u => u.role !== 'owner').length} موظف — مدراء ومحاسبون`
+                          : `${usersList.filter(u => u.role !== 'owner').length} employee(s) — managers & cashiers`}
+                      </p>
+                    </div>
+                    {hasAccess(['owner']) && (
+                      <button
+                        onClick={() => {
+                          setEditingEmployee(null);
+                          setEmpForm({ fullName: '', username: '', password: '', role: 'cashier', store_ids: [] });
+                          setIsEmployeeModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20 text-sm"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        {lang === 'ar' ? 'إضافة موظف' : 'Add Employee'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Role Legend */}
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { role: 'owner',   labelAr: 'المالك',        labelEn: 'Owner',    color: 'purple', desc: lang === 'ar' ? 'صلاحيات كاملة' : 'Full access' },
+                      { role: 'manager', labelAr: 'مدير فرع',      labelEn: 'Manager',  color: 'indigo', desc: lang === 'ar' ? 'موردون، مخزون، تقارير' : 'Suppliers, inventory, reports' },
+                      { role: 'cashier', labelAr: 'أمين الصندوق',  labelEn: 'Cashier',  color: 'emerald',desc: lang === 'ar' ? 'نقطة البيع فقط' : 'POS only' },
+                    ].map(({ role, labelAr, labelEn, color, desc }) => (
+                      <div key={role} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-${color}-500/10 border border-${color}-500/20 text-xs`}>
+                        <Shield className={`h-3.5 w-3.5 text-${color}-400`} />
+                        <span className={`font-semibold text-${color}-400`}>{lang === 'ar' ? labelAr : labelEn}</span>
+                        <span className="text-slate-500">—</span>
+                        <span className="text-slate-400">{desc}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Employees List */}
+                  {usersList.length === 0 ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+                      <Users className="h-12 w-12 text-slate-700 mx-auto mb-3" />
+                      <p className="text-slate-400">{lang === 'ar' ? 'لا يوجد موظفون بعد' : 'No employees yet'}</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {usersList.map((emp) => {
+                        const roleColors: Record<string, string> = { owner: 'purple', manager: 'indigo', cashier: 'emerald' };
+                        const roleLabels: Record<string, string> = { owner: lang === 'ar' ? 'المالك' : 'Owner', manager: lang === 'ar' ? 'مدير فرع' : 'Manager', cashier: lang === 'ar' ? 'أمين صندوق' : 'Cashier' };
+                        const color = roleColors[emp.role] || 'slate';
+                        const assignedBranches = branches.filter(b => (emp.store_ids || [emp.store_id]).filter(Boolean).includes(b.id));
+                        return (
+                          <div key={emp.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between hover:border-slate-700 transition group">
+                            <div className="flex items-center gap-4">
+                              <div className={`h-10 w-10 rounded-xl bg-${color}-500/10 flex items-center justify-center`}>
+                                <User className={`h-5 w-5 text-${color}-400`} />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-bold text-white">{emp.nameAr}</p>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium bg-${color}-500/10 text-${color}-400`}>
+                                    {roleLabels[emp.role]}
+                                  </span>
+                                  {emp.role !== 'owner' && (
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${emp.active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                                      {emp.active ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'موقف' : 'Suspended')}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-400 mt-0.5">@{emp.username}</p>
+                                {assignedBranches.length > 0 && (
+                                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                    <Building2 className="h-3 w-3 text-slate-500" />
+                                    {assignedBranches.map(b => (
+                                      <span key={b.id} className="text-xs text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
+                                        {lang === 'ar' ? b.nameAr : b.nameEn}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {hasAccess(['owner']) && emp.role !== 'owner' && (
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                                {/* Toggle active */}
+                                <button
+                                  onClick={async () => {
+                                    await apiService.updateUser(emp.id, { active: !emp.active });
+                                    await refreshData();
+                                  }}
+                                  className={`p-2 rounded-lg transition ${emp.active ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'}`}
+                                  title={emp.active ? (lang === 'ar' ? 'تعليق الحساب' : 'Suspend') : (lang === 'ar' ? 'تفعيل الحساب' : 'Activate')}
+                                >
+                                  {emp.active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                                </button>
+                                {/* Edit */}
+                                <button
+                                  onClick={() => {
+                                    setEditingEmployee(emp);
+                                    setEmpForm({
+                                      fullName: emp.nameAr,
+                                      username: emp.username,
+                                      password: '',
+                                      role: emp.role as 'manager' | 'cashier',
+                                      store_ids: emp.store_ids || (emp.store_id ? [emp.store_id] : []),
+                                    });
+                                    setIsEmployeeModalOpen(true);
+                                  }}
+                                  className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-400 transition"
+                                  title={lang === 'ar' ? 'تعديل' : 'Edit'}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                {/* Delete */}
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm(lang === 'ar' ? `حذف موظف "${emp.nameAr}" نهائياً؟` : `Permanently delete "${emp.nameAr}"?`)) return;
+                                    await apiService.deleteUser(emp.id);
+                                    await refreshData();
+                                  }}
+                                  className="p-2 rounded-lg bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 transition"
+                                  title={lang === 'ar' ? 'حذف' : 'Delete'}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════
+              MODAL: BRANCH ADD / EDIT
+          ══════════════════════════════════════════════════════════ */}
+          {isBranchModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-md shadow-2xl p-6 space-y-5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-xl bg-indigo-600/20 flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-indigo-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">
+                      {editingBranch ? (lang === 'ar' ? 'تعديل الفرع' : 'Edit Branch') : (lang === 'ar' ? 'إضافة فرع جديد' : 'Add New Branch')}
+                    </h3>
+                  </div>
+                  <button onClick={() => setIsBranchModalOpen(false)} className="text-slate-400 hover:text-white"><X className="h-5 w-5" /></button>
+                </div>
+                <div className="space-y-4 text-sm text-slate-300">
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالعربية):' : 'Store Name (Arabic):'}</label>
+                      <label className="font-semibold text-slate-300">{lang === 'ar' ? 'اسم الفرع (عربي)' : 'Branch Name (AR)'}</label>
                       <input
                         type="text"
-                        name="nameAr"
-                        defaultValue={storeInfo?.nameAr || ''}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        value={branchForm.nameAr}
+                        onChange={e => setBranchForm(p => ({ ...p, nameAr: e.target.value }))}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        placeholder="مثل: الفرع الرئيسي"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالإنجليزية):' : 'Store Name (English):'}</label>
+                      <label className="font-semibold text-slate-300">{lang === 'ar' ? 'اسم الفرع (إنجليزي)' : 'Branch Name (EN)'}</label>
                       <input
                         type="text"
-                        name="nameEn"
-                        defaultValue={storeInfo?.nameEn || ''}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        value={branchForm.nameEn}
+                        onChange={e => setBranchForm(p => ({ ...p, nameEn: e.target.value }))}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        placeholder="e.g. Main Branch"
                       />
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="font-bold">{lang === 'ar' ? 'الرقم الضريبي (ZATCA VAT - 15 خانة):' : 'VAT Registration No (15 digits):'}</label>
-                      <input
-                        type="text"
-                        name="vatNumber"
-                        maxLength={15}
-                        defaultValue={storeInfo?.vatNumber || ''}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="font-bold">{lang === 'ar' ? 'رقم الهاتف:' : 'Phone Contact:'}</label>
-                      <input
-                        type="text"
-                        name="phone"
-                        defaultValue={storeInfo?.phone || ''}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
                   <div className="space-y-1">
-                    <label className="font-bold">{lang === 'ar' ? 'العنوان الجغرافي:' : 'Address Location:'}</label>
+                    <label className="font-semibold text-slate-300">{lang === 'ar' ? 'العنوان / الموقع' : 'Address / Location'}</label>
                     <input
                       type="text"
-                      name="address"
-                      defaultValue={storeInfo?.address || ''}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      value={branchForm.location}
+                      onChange={e => setBranchForm(p => ({ ...p, location: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      placeholder={lang === 'ar' ? 'الرياض، حي العليا' : 'Riyadh, Al Olaya'}
                     />
                   </div>
-
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-300">{lang === 'ar' ? 'الحالة' : 'Status'}</label>
+                    <div className="flex gap-2">
+                      {(['active', 'inactive'] as const).map(s => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setBranchForm(p => ({ ...p, status: s }))}
+                          className={`flex-1 py-2 rounded-lg border font-semibold text-xs transition ${
+                            branchForm.status === s
+                              ? s === 'active' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
+                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {s === 'active' ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'معطل' : 'Inactive')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
                   <button
-                    type="submit"
-                    className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition"
+                    onClick={() => setIsBranchModalOpen(false)}
+                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition"
                   >
-                    {lang === 'ar' ? 'حفظ إعدادات المؤسسة' : 'Save Store Details'}
+                    {lang === 'ar' ? 'إلغاء' : 'Cancel'}
                   </button>
-                </form>
+                  <button
+                    onClick={async () => {
+                      if (!branchForm.nameAr || !branchForm.nameEn || !branchForm.location) {
+                        alert(lang === 'ar' ? 'يرجى تعبئة جميع الحقول' : 'Please fill all fields');
+                        return;
+                      }
+                      const branchData: Branch = {
+                        id: editingBranch?.id || `branch-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        nameAr: branchForm.nameAr,
+                        nameEn: branchForm.nameEn,
+                        location: branchForm.location,
+                        status: branchForm.status,
+                      };
+                      await apiService.saveBranch(branchData);
+                      setIsBranchModalOpen(false);
+                      await refreshData();
+                    }}
+                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20"
+                  >
+                    {editingBranch ? (lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes') : (lang === 'ar' ? 'إنشاء الفرع' : 'Create Branch')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════
+              MODAL: EMPLOYEE ADD / EDIT
+          ══════════════════════════════════════════════════════════ */}
+          {isEmployeeModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-lg shadow-2xl p-6 space-y-5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-xl bg-indigo-600/20 flex items-center justify-center">
+                      <UserPlus className="h-5 w-5 text-indigo-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">
+                      {editingEmployee ? (lang === 'ar' ? 'تعديل بيانات الموظف' : 'Edit Employee') : (lang === 'ar' ? 'إضافة موظف جديد' : 'Add New Employee')}
+                    </h3>
+                  </div>
+                  <button onClick={() => setIsEmployeeModalOpen(false)} className="text-slate-400 hover:text-white"><X className="h-5 w-5" /></button>
+                </div>
+
+                <div className="space-y-4 text-sm text-slate-300">
+                  {/* Full Name */}
+                  <div className="space-y-1">
+                    <label className="font-semibold">{lang === 'ar' ? 'الاسم الكامل' : 'Full Name'}</label>
+                    <input
+                      type="text"
+                      value={empForm.fullName}
+                      onChange={e => setEmpForm(p => ({ ...p, fullName: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      placeholder={lang === 'ar' ? 'الاسم كاملاً' : 'Full name'}
+                    />
+                  </div>
+                  {/* Username */}
+                  <div className="space-y-1">
+                    <label className="font-semibold">{lang === 'ar' ? 'اسم المستخدم (للدخول)' : 'Username (for login)'}</label>
+                    <input
+                      type="text"
+                      value={empForm.username}
+                      onChange={e => setEmpForm(p => ({ ...p, username: e.target.value }))}
+                      disabled={!!editingEmployee}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+                      placeholder="username"
+                      dir="ltr"
+                    />
+                  </div>
+                  {/* Password */}
+                  <div className="space-y-1">
+                    <label className="font-semibold">
+                      {editingEmployee
+                        ? (lang === 'ar' ? 'كلمة مرور جديدة (اتركها فارغة لعدم التغيير)' : 'New Password (leave blank to keep current)')
+                        : (lang === 'ar' ? 'كلمة المرور' : 'Password')}
+                    </label>
+                    <input
+                      type="password"
+                      value={empForm.password}
+                      onChange={e => setEmpForm(p => ({ ...p, password: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  {/* Role */}
+                  <div className="space-y-2">
+                    <label className="font-semibold">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        { role: 'manager', labelAr: 'مدير فرع', labelEn: 'Branch Manager', descAr: 'موردون، مخزون، تقارير', descEn: 'Suppliers, inventory, reports' },
+                        { role: 'cashier', labelAr: 'أمين صندوق', labelEn: 'Cashier', descAr: 'نقطة البيع فقط', descEn: 'POS only' },
+                      ] as const).map(({ role, labelAr, labelEn, descAr, descEn }) => (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() => setEmpForm(p => ({ ...p, role }))}
+                          className={`p-3 rounded-xl border text-left transition ${
+                            empForm.role === role
+                              ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <Shield className={`h-3.5 w-3.5 ${empForm.role === role ? 'text-indigo-400' : 'text-slate-500'}`} />
+                            <span className="font-bold text-xs">{lang === 'ar' ? labelAr : labelEn}</span>
+                          </div>
+                          <p className="text-xs opacity-70">{lang === 'ar' ? descAr : descEn}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Branch Assignment */}
+                  {branches.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="font-semibold">
+                        {lang === 'ar'
+                          ? (empForm.role === 'manager' ? 'الفروع المسؤول عنها (يمكن اختيار أكثر من فرع)' : 'الفرع المخصص')
+                          : (empForm.role === 'manager' ? 'Assigned Branches (multi-select for managers)' : 'Assigned Branch')}
+                      </label>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {branches.map(b => {
+                          const selected = empForm.store_ids.includes(b.id);
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => {
+                                if (empForm.role === 'cashier') {
+                                  // Cashier: single selection
+                                  setEmpForm(p => ({ ...p, store_ids: selected ? [] : [b.id] }));
+                                } else {
+                                  // Manager: multi selection
+                                  setEmpForm(p => ({
+                                    ...p,
+                                    store_ids: selected
+                                      ? p.store_ids.filter(id => id !== b.id)
+                                      : [...p.store_ids, b.id],
+                                  }));
+                                }
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition text-left ${
+                                selected
+                                  ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-300'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Building2 className={`h-3.5 w-3.5 ${selected ? 'text-indigo-400' : 'text-slate-500'}`} />
+                                <span className="text-sm font-medium">{lang === 'ar' ? b.nameAr : b.nameEn}</span>
+                                <span className="text-xs text-slate-500">{b.location}</span>
+                              </div>
+                              {selected && <CheckCircle2 className="h-4 w-4 text-indigo-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setIsEmployeeModalOpen(false)}
+                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition"
+                  >
+                    {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!empForm.fullName || !empForm.username) {
+                        alert(lang === 'ar' ? 'الاسم واسم المستخدم مطلوبان' : 'Full name and username are required');
+                        return;
+                      }
+                      if (!editingEmployee && !empForm.password) {
+                        alert(lang === 'ar' ? 'كلمة المرور مطلوبة' : 'Password is required');
+                        return;
+                      }
+                      try {
+                        if (editingEmployee) {
+                          await apiService.updateUser(editingEmployee.id, {
+                            fullName: empForm.fullName,
+                            role: empForm.role,
+                            store_ids: empForm.store_ids,
+                            ...(empForm.password ? { password: empForm.password } : {}),
+                          });
+                        } else {
+                          await apiService.createUser({
+                            fullName: empForm.fullName,
+                            username: empForm.username,
+                            password: empForm.password,
+                            role: empForm.role,
+                            store_ids: empForm.store_ids,
+                          });
+                        }
+                        setIsEmployeeModalOpen(false);
+                        await refreshData();
+                      } catch (err: any) {
+                        alert(err.message || (lang === 'ar' ? 'حدث خطأ' : 'An error occurred'));
+                      }
+                    }}
+                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20"
+                  >
+                    {editingEmployee ? (lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes') : (lang === 'ar' ? 'إنشاء الحساب' : 'Create Account')}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2063,7 +2723,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="font-bold">{lang === 'ar' ? 'وحدة القياس:' : 'UoM Unit'}</label>
                   <input
@@ -2082,6 +2742,20 @@ export default function App() {
                     onChange={(e) => setEditingProduct({ ...editingProduct, lowStockThreshold: parseInt(e.target.value, 10) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none font-mono"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold">{lang === 'ar' ? 'المورد المرتبط:' : 'Linked Supplier'}</label>
+                  <select
+                    value={editingProduct.supplierId || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, supplierId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                  >
+                    <option value="">{lang === 'ar' ? '-- بدون مورد محدد --' : '-- No Specific Supplier --'}</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-1 flex flex-col justify-end pb-1.5">
                   <label className="font-bold flex items-center gap-2 cursor-pointer select-none">
@@ -2219,15 +2893,17 @@ export default function App() {
             <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
               {/* Left Side: PO Item Basket */}
               <div className="flex-1 flex flex-col bg-slate-950 border border-slate-800 rounded-xl overflow-hidden min-h-0">
-                <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-                  <span className="text-xs font-bold text-slate-300">{lang === 'ar' ? 'بنود الشحن والتوريد:' : 'PO Items Added:'}</span>
+                <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300 whitespace-nowrap">{lang === 'ar' ? 'أمر شراء لفرع:' : 'PO for Branch:'}</span>
                   <select
-                    value={selectedPoSupplier}
-                    onChange={(e) => setSelectedPoSupplier(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded px-2 py-1 focus:outline-none"
+                    value={poSelectedBranch || activeStoreId || ''}
+                    onChange={(e) => setPoSelectedBranch(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500"
+                    disabled={currentUser?.role === 'cashier'}
                   >
-                    <option value="">{lang === 'ar' ? '-- اختر المورد --' : '-- Choose Supplier --'}</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>{lang === 'ar' ? b.nameAr : b.nameEn}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -2299,19 +2975,34 @@ export default function App() {
 
               {/* Right Side: Product Catalog selector */}
               <div className="w-80 flex flex-col bg-slate-950 border border-slate-800 rounded-xl overflow-hidden min-h-0 shrink-0">
-                <div className="p-2 border-b border-slate-800 bg-slate-900/50 relative">
-                  <Search className="absolute left-4 top-4.5 h-3.5 w-3.5 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder={lang === 'ar' ? 'ابحث لتدرج بضاعة...' : 'Search inventory...'}
-                    value={poProductSearch}
-                    onChange={(e) => setPoProductSearch(e.target.value)}
-                    className={`w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs focus:outline-none ${lang==='ar'?'pr-8 pl-2 text-right':'pl-8 pr-2 text-left'}`}
-                  />
+                <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex flex-col gap-2 relative">
+                  <select
+                    value={selectedPoSupplier}
+                    onChange={(e) => setSelectedPoSupplier(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">{lang === 'ar' ? '-- اختر المورد --' : '-- Choose Supplier --'}</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  
+                  <div className="relative">
+                    <Search className={`absolute ${lang==='ar'?'right-2.5':'left-2.5'} top-2 h-3.5 w-3.5 text-slate-500`} />
+                    <input
+                      type="text"
+                      placeholder={lang === 'ar' ? 'ابحث عن المنتج...' : 'Search for the product...'}
+                      value={poProductSearch}
+                      onChange={(e) => setPoProductSearch(e.target.value)}
+                      className={`w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${lang==='ar'?'pr-8 pl-2 text-right':'pl-8 pr-2 text-left'}`}
+                    />
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                   {products
-                    .filter(p => p.nameAr.toLowerCase().includes(poProductSearch.toLowerCase()) || p.nameEn.toLowerCase().includes(poProductSearch.toLowerCase()) || p.barcode.includes(poProductSearch))
+                    .filter(p => {
+                      const searchMatch = p.nameAr.toLowerCase().includes(poProductSearch.toLowerCase()) || p.nameEn.toLowerCase().includes(poProductSearch.toLowerCase()) || p.barcode.includes(poProductSearch);
+                      const supplierMatch = selectedPoSupplier ? p.supplierId === selectedPoSupplier : true;
+                      return searchMatch && supplierMatch;
+                    })
                     .map(p => (
                       <button
                         key={p.id}
@@ -2327,6 +3018,97 @@ export default function App() {
                     ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL / POPUP: PURCHASE ORDER RECEIPT
+          ======================================================== */}
+      {activePoReceipt && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white text-slate-900 rounded-xl max-w-sm w-full p-6 shadow-2xl relative">
+            <button 
+              onClick={() => setActivePoReceipt(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 print:hidden transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-black text-slate-900">{lang === 'ar' ? 'أمر شراء / توريد' : 'Purchase Order Receipt'}</h2>
+              <div className="text-xs text-slate-500 font-mono mt-1">{activePoReceipt.poNumber}</div>
+              <div className="text-sm text-slate-800 font-bold mt-2 bg-slate-100 py-1 px-3 rounded-full inline-block">
+                {lang === 'ar' ? 'الفرع:' : 'Branch:'} {storeInfo?.nameAr || 'SmartMarkt'}
+              </div>
+            </div>
+
+            <div className="space-y-2 mb-6 text-xs text-slate-600">
+              <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
+                <span>{lang === 'ar' ? 'التاريخ:' : 'Date:'}</span>
+                <span className="font-mono">{new Date(activePoReceipt.date).toLocaleString(lang==='ar'?'ar-SA':'en-US')}</span>
+              </div>
+              <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
+                <span>{lang === 'ar' ? 'المورد:' : 'Supplier:'}</span>
+                <span className="font-bold">{activePoReceipt.supplierName}</span>
+              </div>
+              <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
+                <span>{lang === 'ar' ? 'الحالة:' : 'Status:'}</span>
+                <span className="font-bold">{activePoReceipt.status === 'received' ? (lang === 'ar' ? 'تم الاستلام' : 'Received') : (lang === 'ar' ? 'قيد الانتظار' : 'Pending')}</span>
+              </div>
+              {activePoReceipt.status === 'received' && (
+                <>
+                  <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
+                    <span>{lang === 'ar' ? 'تاريخ الاستلام:' : 'Received On:'}</span>
+                    <span className="font-mono">{new Date(activePoReceipt.receivedDate!).toLocaleString(lang==='ar'?'ar-SA':'en-US')}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
+                    <span>{lang === 'ar' ? 'المستلم:' : 'Received By:'}</span>
+                    <span className="font-bold">{activePoReceipt.receivedBy || (lang === 'ar' ? 'غير مسجل (الطلبات القديمة)' : 'Not Recorded (Old PO)')}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mb-4">
+              <table className="w-full text-xs text-right">
+                <thead>
+                  <tr className="border-b-2 border-slate-900 font-bold">
+                    <th className="pb-2">{lang === 'ar' ? 'المنتج' : 'Item'}</th>
+                    <th className="pb-2 text-center">{lang === 'ar' ? 'الكمية' : 'Qty'}</th>
+                    <th className="pb-2 text-center">{lang === 'ar' ? 'السعر' : 'Price'}</th>
+                    <th className="pb-2">{lang === 'ar' ? 'الإجمالي' : 'Total'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-dashed divide-slate-300">
+                  {activePoReceipt.items.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2">
+                        <div className="font-semibold">{lang==='ar'?item.productNameAr:item.productNameEn}</div>
+                      </td>
+                      <td className="py-2 text-center font-mono">{item.quantity}</td>
+                      <td className="py-2 text-center font-mono">{item.costPrice.toFixed(2)}</td>
+                      <td className="py-2 font-mono font-bold">{item.total.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t-2 border-slate-900 pt-3 flex items-center justify-between">
+              <span className="font-bold text-sm">{lang === 'ar' ? 'الإجمالي الكلي:' : 'Grand Total:'}</span>
+              <span className="font-mono font-black text-lg">{activePoReceipt.total.toFixed(2)} SAR</span>
+            </div>
+
+            <div className="mt-8 text-center print:hidden flex flex-col gap-3">
+              <button 
+                onClick={() => window.print()}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition"
+              >
+                <Printer className="h-5 w-5" />
+                {lang === 'ar' ? 'طباعة أمر التوريد' : 'Print PO Receipt'}
+              </button>
             </div>
           </div>
         </div>
@@ -2369,7 +3151,10 @@ export default function App() {
               <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-300">
                 <h3 className="font-extrabold text-base">{storeInfo?.nameAr}</h3>
                 <h4 className="text-[11px] text-slate-600 font-medium">{storeInfo?.nameEn}</h4>
-                <p className="text-[10px] text-slate-500">{storeInfo?.address}</p>
+                <div className="text-xs text-slate-800 font-bold mt-1 bg-slate-100 py-0.5 px-2 rounded-full inline-block">
+                  {lang === 'ar' ? 'الفرع:' : 'Branch:'} {storeInfo?.nameAr}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">{storeInfo?.address}</p>
                 <p className="text-[10px] text-slate-500 font-mono">{storeInfo?.phone}</p>
                 <div className="bg-slate-100 py-1 px-2 rounded mt-2 inline-block font-extrabold text-[10px] text-slate-800">
                   {lang === 'ar' ? 'فاتورة ضريبية مبسطة' : 'Simplified Tax Invoice'}

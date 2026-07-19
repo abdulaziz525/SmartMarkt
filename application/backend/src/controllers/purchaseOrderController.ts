@@ -39,7 +39,8 @@ router.post('/purchase-orders', async (req, res) => {
     const { po } = req.body;
 
     await db.transaction(async (trx) => {
-      const existing = await trx('purchase_orders').where({ id: po.id, store_id: req.storeId }).first();
+      const targetStoreId = po.store_id || req.storeId;
+      const existing = await trx('purchase_orders').where({ id: po.id, store_id: targetStoreId }).first();
       
       const poData = {
         id: po.id,
@@ -50,12 +51,12 @@ router.post('/purchase-orders', async (req, res) => {
         total: po.total,
         status: po.status,
         receivedDate: po.receivedDate || null,
-        store_id: req.storeId
+        store_id: targetStoreId
       };
 
       if (existing) {
-        await trx('purchase_orders').where({ id: po.id, store_id: req.storeId }).update(poData);
-        await trx('purchase_order_items').where({ poId: po.id, store_id: req.storeId }).delete();
+        await trx('purchase_orders').where({ id: po.id, store_id: targetStoreId }).update(poData);
+        await trx('purchase_order_items').where({ poId: po.id, store_id: targetStoreId }).delete();
         
         if (req.user) {
           await logAudit(
@@ -91,7 +92,7 @@ router.post('/purchase-orders', async (req, res) => {
           costPrice: item.costPrice,
           quantity: item.quantity,
           total: item.total,
-          store_id: req.storeId
+          store_id: targetStoreId
         }));
         await trx('purchase_order_items').insert(itemRows);
       }
@@ -119,7 +120,8 @@ router.post('/purchase-orders/:id/receive', async (req, res) => {
       const receivedDate = new Date().toISOString();
       await trx('purchase_orders').where({ id, store_id: req.storeId }).update({
         status: 'received',
-        receivedDate
+        receivedDate,
+        receivedBy: req.user ? (req.user.nameAr || req.user.username) : 'غير مسجل'
       });
 
       const poItems = await trx('purchase_order_items').where({ poId: id, store_id: req.storeId });

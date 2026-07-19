@@ -11,6 +11,7 @@ export interface Product {
   lowStockThreshold: number;
   expiryDate?: string; // YYYY-MM-DD
   isPerishable: boolean;
+  supplierId?: string;
 }
 
 export interface CartItem {
@@ -79,6 +80,8 @@ export interface PurchaseOrder {
   total: number;
   status: 'pending' | 'received';
   receivedDate?: string;
+  receivedBy?: string;
+  store_id?: string;
 }
 
 export type UserRole = 'owner' | 'manager' | 'cashier';
@@ -92,6 +95,7 @@ export interface User {
   active: boolean;
   organization_id?: string;
   store_id?: string;
+  store_ids?: string[]; // list of assigned store IDs (managers can have multiple)
 }
 
 export interface AuditLog {

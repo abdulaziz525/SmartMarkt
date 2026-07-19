@@ -86,6 +86,30 @@ export const apiService = {
     return get<User[]>('/users');
   },
 
+  createUser(data: {
+    fullName: string;
+    username: string;
+    password: string;
+    role: 'manager' | 'cashier';
+    store_ids: string[];
+  }): Promise<User> {
+    return post<User>('/users', data);
+  },
+
+  updateUser(id: string, data: {
+    fullName?: string;
+    role?: 'manager' | 'cashier';
+    store_ids?: string[];
+    active?: boolean;
+    password?: string;
+  }): Promise<{ success: boolean }> {
+    return put<{ success: boolean }>(`/users/${id}`, data);
+  },
+
+  deleteUser(id: string): Promise<{ success: boolean }> {
+    return del<{ success: boolean }>(`/users/${id}`);
+  },
+
   // ── Authentication & Setup ─────────────────────────────────────────
   checkSetupStatus(): Promise<{ isSetupComplete: boolean }> {
     return get<{ isSetupComplete: boolean }>('/auth/status');
