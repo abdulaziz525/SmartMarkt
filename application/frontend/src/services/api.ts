@@ -179,12 +179,14 @@ export const apiService = {
   createInvoice(
     items: { product: Product; quantity: number; discount: number; customPrice?: number }[],
     paymentMethod: PaymentMethod,
-    paymentDetails: { cashAmount?: number; cardAmount?: number }
+    paymentDetails: { cashAmount?: number; cardAmount?: number },
+    storeId?: string
   ): Promise<Invoice> {
     return post<Invoice>('/invoices', {
       items,
       paymentMethod,
       paymentDetails,
+      storeId,
     });
   },
 

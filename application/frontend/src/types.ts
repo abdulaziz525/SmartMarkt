@@ -52,6 +52,7 @@ export interface Invoice {
   zatcaQrCode: string; // base64 TLV data
   cashierId: string;
   cashierName: string;
+  store_id?: string;
 }
 
 export interface Supplier {

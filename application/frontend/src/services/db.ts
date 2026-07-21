@@ -244,7 +244,8 @@ export const dbService = {
   async createInvoice(
     items: { product: Product; quantity: number; discount: number; customPrice?: number }[],
     paymentMethod: PaymentMethod,
-    paymentDetails: { cashAmount?: number; cardAmount?: number }
+    paymentDetails: { cashAmount?: number; cardAmount?: number },
+    storeId?: string
   ): Promise<Invoice> {
     if (await isBackendOnline()) {
       try {
@@ -256,6 +257,7 @@ export const dbService = {
             paymentMethod,
             paymentDetails,
             currentUser: this.getCurrentUser(),
+            storeId,
           }),
         }).then(r => {
           if (!r.ok) throw new Error('Backend failed checkout');
@@ -350,6 +352,7 @@ export const dbService = {
       zatcaQrCode,
       cashierId: currentUser.id,
       cashierName: currentUser.nameAr,
+      store_id: storeId || currentUser.store_id || currentUser.store_ids?.[0],
     };
 
     invoices.unshift(newInvoice);

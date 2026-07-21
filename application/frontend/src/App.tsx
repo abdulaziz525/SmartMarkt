@@ -370,7 +370,7 @@ export default function App() {
       cardAmount: paymentMethod === 'card' ? total : paymentMethod === 'split' ? (total - parsedCash) : 0,
     };
 
-    const newInvoice = await apiService.createInvoice(checkoutItems, paymentMethod, details);
+    const newInvoice = await apiService.createInvoice(checkoutItems, paymentMethod, details, activeStoreId || '');
     
     setActiveInvoice(newInvoice);
     setCart([]);
@@ -658,6 +658,49 @@ export default function App() {
   };
 
   const bestSellers = getBestSellers();
+
+  const getBranchMetrics = () => {
+    const metrics: { [branchId: string]: { name: string; sales: number; profit: number; items: { [id: string]: { name: string; qty: number } } } } = {};
+    
+    branches.forEach(b => {
+      metrics[b.id] = { name: lang === 'ar' ? b.nameAr : b.nameEn, sales: 0, profit: 0, items: {} };
+    });
+
+    invoices.forEach(inv => {
+      const bId = inv.store_id;
+      if (!bId || !metrics[bId]) return;
+      
+      metrics[bId].sales += inv.total;
+      let cost = 0;
+      inv.items.forEach(item => {
+        cost += item.costPrice * item.quantity;
+        if (!metrics[bId].items[item.productId]) {
+          metrics[bId].items[item.productId] = { name: lang === 'ar' ? item.nameAr : item.nameEn, qty: 0 };
+        }
+        metrics[bId].items[item.productId].qty += item.quantity;
+      });
+      metrics[bId].profit += (inv.total - inv.vatAmount) - cost;
+    });
+
+    return Object.values(metrics).map(m => {
+      let bestSeller = '-';
+      let maxQty = 0;
+      Object.values(m.items).forEach(it => {
+        if (it.qty > maxQty) {
+          maxQty = it.qty;
+          bestSeller = it.name;
+        }
+      });
+      return {
+        name: m.name,
+        sales: m.sales,
+        profit: m.profit,
+        bestSeller: maxQty > 0 ? `${bestSeller} (${maxQty})` : '-'
+      };
+    });
+  };
+
+  const branchMetrics = getBranchMetrics();
 
   // Low stock and expiring alerts count
   const lowStockCount = products.filter(p => p.quantity <= p.lowStockThreshold).length;
@@ -1034,6 +1077,37 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Branch Performance */}
+              {hasAccess(['owner', 'manager']) && branchMetrics.length > 0 && (
+                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 lg:col-span-3 mt-6">
+                  <h3 className="text-lg font-bold text-white">
+                    {lang === 'ar' ? 'أداء الفروع' : 'Branch Performance'}
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right border-collapse">
+                      <thead>
+                        <tr className="bg-slate-950 text-slate-400 text-xs font-bold border-b border-slate-800">
+                          <th className="p-3">{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
+                          <th className="p-3 font-mono">{lang === 'ar' ? 'المبيعات' : 'Sales'}</th>
+                          <th className="p-3 font-mono">{lang === 'ar' ? 'الأرباح' : 'Profit'}</th>
+                          <th className="p-3">{lang === 'ar' ? 'المنتج الأكثر مبيعاً' : 'Best Seller'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-sm">
+                        {branchMetrics.map((branch, idx) => (
+                          <tr key={idx} className="hover:bg-slate-900/60 transition">
+                            <td className="p-3 font-bold text-slate-200">{branch.name}</td>
+                            <td className="p-3 font-mono font-bold text-indigo-400">{branch.sales.toFixed(2)} SAR</td>
+                            <td className="p-3 font-mono font-bold text-emerald-400">{branch.profit.toFixed(2)} SAR</td>
+                            <td className="p-3 text-xs text-slate-400">{branch.bestSeller}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1628,8 +1702,7 @@ export default function App() {
                       <tr className="bg-slate-950 text-slate-400 text-xs font-bold border-b border-slate-800">
                         <th className="p-3 font-mono">PO Number</th>
                         <th className="p-3">{lang === 'ar' ? 'التاريخ' : 'Date'}</th>
-                        <th className="p-3">{lang === 'ar' ? 'المورد' : 'Supplier'}</th>
-                        <th className="p-3">{lang === 'ar' ? 'عدد البنود' : 'Items'}</th>
+                        <th className="p-3">{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
                         <th className="p-3 font-mono">{lang === 'ar' ? 'الإجمالي' : 'Total'}</th>
                         <th className="p-3">{lang === 'ar' ? 'حالة الاستلام' : 'Status'}</th>
                         <th className="p-3 text-center">{lang === 'ar' ? 'إجراءات' : 'Actions'}</th>
@@ -1640,8 +1713,11 @@ export default function App() {
                         <tr key={idx} className="hover:bg-slate-900/60 transition">
                           <td className="p-3 font-mono text-xs text-indigo-400 font-bold">{po.poNumber}</td>
                           <td className="p-3 font-mono text-xs text-slate-400">{new Date(po.date).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}</td>
-                          <td className="p-3 font-bold text-slate-200">{po.supplierName}</td>
-                          <td className="p-3 text-xs text-slate-400">{po.items.length} {lang === 'ar' ? 'منتج' : 'items'}</td>
+                          <td className="p-3 font-bold text-slate-200">
+                            {lang === 'ar' 
+                              ? branches.find(b => b.id === po.store_id)?.nameAr || '-' 
+                              : branches.find(b => b.id === po.store_id)?.nameEn || '-'}
+                          </td>
                           <td className="p-3 font-mono font-bold text-slate-300">{po.total.toFixed(2)} SAR</td>
                           <td className="p-3">
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
@@ -3050,8 +3126,12 @@ export default function App() {
                 <span className="font-mono">{new Date(activePoReceipt.date).toLocaleString(lang==='ar'?'ar-SA':'en-US')}</span>
               </div>
               <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
-                <span>{lang === 'ar' ? 'المورد:' : 'Supplier:'}</span>
-                <span className="font-bold">{activePoReceipt.supplierName}</span>
+                <span>{lang === 'ar' ? 'الفرع:' : 'Branch:'}</span>
+                <span className="font-bold">
+                  {lang === 'ar' 
+                    ? branches.find(b => b.id === activePoReceipt.store_id)?.nameAr || '-' 
+                    : branches.find(b => b.id === activePoReceipt.store_id)?.nameEn || '-'}
+                </span>
               </div>
               <div className="flex justify-between border-b border-dashed border-slate-300 pb-1">
                 <span>{lang === 'ar' ? 'الحالة:' : 'Status:'}</span>
