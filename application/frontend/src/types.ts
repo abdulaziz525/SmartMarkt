@@ -44,7 +44,7 @@ export interface Invoice {
   discountAmount: number;
   vatAmount: number;
   total: number;
-  paymentMethod: PaymentMethod;
+  paymentMethod: PaymentMethod | 'installments' | 'deferred';
   paymentDetails: {
     cashAmount?: number;
     cardAmount?: number;
@@ -52,7 +52,9 @@ export interface Invoice {
   zatcaQrCode: string; // base64 TLV data
   cashierId: string;
   cashierName: string;
-  store_id?: string;
+  store_id: string;
+  customer_id?: string;
+  fulfillment_mode?: 'in_store' | 'pickup' | 'delivery';
 }
 
 export interface Supplier {
@@ -97,6 +99,7 @@ export interface User {
   organization_id?: string;
   store_id?: string;
   store_ids?: string[]; // list of assigned store IDs (managers can have multiple)
+  permissions?: Record<string, boolean>;
 }
 
 export interface AuditLog {

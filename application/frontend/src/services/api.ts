@@ -7,6 +7,7 @@ export interface StoreInfo {
   vatNumber: string;
   phone: string;
   address: string;
+  is_website_enabled?: boolean;
 }
 
 // API base URL — reads from Vite env or defaults to the dev proxy
@@ -59,6 +60,14 @@ export const apiService = {
     return get('/status');
   },
 
+  // ── Customers ────────────────────────────────────────────────────
+  getCustomers(): Promise<any[]> {
+    return get('/customers');
+  },
+  getCustomer(id: string): Promise<any> {
+    return get(`/customers/${id}`);
+  },
+
   // ── Store Info ───────────────────────────────────────────────────
   getStoreInfo(storeId?: string): Promise<StoreInfo> {
     return get<StoreInfo>('/store-info', storeId);
@@ -102,6 +111,7 @@ export const apiService = {
     store_ids?: string[];
     active?: boolean;
     password?: string;
+    permissions?: Record<string, boolean>;
   }): Promise<{ success: boolean }> {
     return put<{ success: boolean }>(`/users/${id}`, data);
   },
@@ -229,6 +239,21 @@ export const apiService = {
     return post<{ success: boolean }>('/audit-logs', { action, details});
   },
 
+  logAuditBeacon(action: string, details: string): void {
+    const url = `${API_BASE}/audit-logs`;
+    const storeId = localStorage.getItem('activeStoreId');
+    const extraHeaders: Record<string, string> = storeId ? { 'x-store-id': storeId } : {};
+    
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+      credentials: 'include',
+      keepalive: true,
+      body: JSON.stringify({ action, details })
+    }).catch(() => {});
+  },
+
+
   // ── CSV Parsing (client-side utility) ────────────────────────────
   parseCSV(csvText: string): { products: Product[]; errors: string[] } {
     const lines = csvText.split('\n');
@@ -257,7 +282,7 @@ export const apiService = {
       }
 
       if (!barcode || !nameAr || !nameEn) {
-        errors.push(`Line ${i + 1}: Barcode, Arabic Name, and English Name are required`);
+        errors.push(`Line ${i + 1}: Barcode and Name are required`);
         continue;
       }
 

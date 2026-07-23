@@ -259,6 +259,76 @@ export async function runMigrations() {
     });
   }
 
+  // 11. Customers table
+  const hasCustomers = await db.schema.hasTable('customers');
+  if (!hasCustomers) {
+    console.log('Creating customers table...');
+    await db.schema.createTable('customers', (table) => {
+      table.string('id').primary();
+      table.string('name').notNullable();
+      table.string('phone').notNullable();
+      table.string('email').notNullable().unique();
+      table.string('password').notNullable();
+      table.string('nationalAddress').nullable();
+      table.string('status').notNullable().defaultTo('active');
+      table.timestamp('createdAt').defaultTo(db.fn.now());
+    });
+  } else {
+    const hasNationalAddress = await db.schema.hasColumn('customers', 'nationalAddress');
+    if (!hasNationalAddress) {
+      await db.schema.alterTable('customers', table => {
+        table.string('nationalAddress').nullable();
+      });
+    }
+  }
+
+  // 12. Installment Plans table
+  const hasInstallmentPlans = await db.schema.hasTable('installment_plans');
+  if (!hasInstallmentPlans) {
+    console.log('Creating installment_plans table...');
+    await db.schema.createTable('installment_plans', (table) => {
+      table.string('id').primary();
+      table.string('customer_id').notNullable().references('id').inTable('customers').onDelete('CASCADE');
+      table.string('invoice_id').notNullable().references('id').inTable('invoices').onDelete('CASCADE');
+      table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
+      table.decimal('total_amount', 12, 2).notNullable();
+      table.string('status').notNullable(); // 'ACTIVE', 'COMPLETED', 'DEFAULTED'
+      table.timestamp('createdAt').defaultTo(db.fn.now());
+    });
+  }
+
+  // 13. Installments table
+  const hasInstallments = await db.schema.hasTable('installments');
+  if (!hasInstallments) {
+    console.log('Creating installments table...');
+    await db.schema.createTable('installments', (table) => {
+      table.string('id').primary();
+      table.string('plan_id').notNullable().references('id').inTable('installment_plans').onDelete('CASCADE');
+      table.integer('installment_number').notNullable();
+      table.decimal('amount', 12, 2).notNullable();
+      table.string('due_date').notNullable();
+      table.string('status').notNullable(); // 'PENDING', 'PAID', 'OVERDUE'
+    });
+  }
+
+  // Check if invoices has new columns
+  const hasCustomerIdCol = await db.schema.hasColumn('invoices', 'customer_id');
+  if (!hasCustomerIdCol) {
+    console.log('Adding BNPL columns to invoices table...');
+    await db.schema.alterTable('invoices', (table) => {
+      table.string('customer_id').nullable().references('id').inTable('customers').onDelete('SET NULL');
+      table.string('fulfillment_mode').notNullable().defaultTo('in_store'); // 'in_store', 'pickup', 'delivery'
+    });
+  }
+
+  const hasIsWebsiteEnabled = await db.schema.hasColumn('stores', 'is_website_enabled');
+  if (!hasIsWebsiteEnabled) {
+    console.log('Adding is_website_enabled to stores table...');
+    await db.schema.alterTable('stores', (table) => {
+      table.boolean('is_website_enabled').notNullable().defaultTo(true);
+    });
+  }
+
   console.log('Database auto-migrations completed successfully!');
 }
 

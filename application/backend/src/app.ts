@@ -15,6 +15,8 @@ import supplierController from './controllers/supplierController.js';
 import purchaseOrderController from './controllers/purchaseOrderController.js';
 import invoiceController from './controllers/invoiceController.js';
 import auditLogController from './controllers/auditLogController.js';
+import storefrontController from './controllers/storefrontController.js';
+import customerController from './controllers/customerController.js';
 
 dotenv.config();
 
@@ -29,6 +31,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // API Routes
+app.use('/api/storefront', storefrontController);
 app.use('/api', authRoutes);
 
 
@@ -55,6 +58,7 @@ app.use('/api', supplierController);
 app.use('/api', purchaseOrderController);
 app.use('/api', invoiceController);
 app.use('/api', auditLogController);
+app.use('/api', customerController);
 
 async function startServer() {
   try {

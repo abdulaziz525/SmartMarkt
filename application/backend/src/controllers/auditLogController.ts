@@ -6,7 +6,15 @@ const router = Router();
 
 router.get('/audit-logs', async (req, res) => {
   try {
-    const logs = await db('audit_logs').where({ store_id: req.storeId }).orderBy('timestamp', 'desc');
+    let query = db('audit_logs').where({ store_id: req.storeId }).orderBy('timestamp', 'desc');
+    
+    if (req.user && req.user.role === 'manager') {
+      query = query.where(function() {
+        this.where('role', 'cashier').orWhere('userId', req.user.id);
+      });
+    }
+    
+    const logs = await query;
     res.json(logs);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

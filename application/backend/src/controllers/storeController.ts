@@ -6,9 +6,15 @@ const router = Router();
 
 router.get('/stores', async (req, res) => {
   try {
-    const stores = await db('stores')
+    let stores = await db('stores')
       .where({ organization_id: req.user.organization_id })
       .select('*');
+      
+    if (req.user.role === 'manager' || req.user.role === 'cashier') {
+      const dbUser = await db('users').where({ id: req.user.id }).first();
+      const assignedStoreIds = dbUser?.store_ids ? JSON.parse(dbUser.store_ids) : (dbUser?.store_id ? [dbUser.store_id] : []);
+      stores = stores.filter(s => assignedStoreIds.includes(s.id));
+    }
     res.json(stores);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -17,9 +23,16 @@ router.get('/stores', async (req, res) => {
 
 router.get('/branches', async (req, res) => {
   try {
-    const stores = await db('stores')
+    let stores = await db('stores')
       .where({ organization_id: req.user.organization_id })
       .select('*');
+      
+    if (req.user.role === 'manager' || req.user.role === 'cashier') {
+      const dbUser = await db('users').where({ id: req.user.id }).first();
+      const assignedStoreIds = dbUser?.store_ids ? JSON.parse(dbUser.store_ids) : (dbUser?.store_id ? [dbUser.store_id] : []);
+      stores = stores.filter(s => assignedStoreIds.includes(s.id));
+    }
+    
     const branches = stores.map(s => ({
       id: s.id,
       nameAr: s.nameAr,
@@ -88,10 +101,16 @@ router.get('/store-info', async (req, res) => {
 
 router.put('/store-info', async (req, res) => {
   try {
-    const { nameAr, nameEn, vatNumber, phone, address } = req.body;
+    const { nameAr, nameEn, vatNumber, phone, address, is_website_enabled } = req.body;
+    
+    const updateData: any = { nameAr, nameEn, vatNumber, phone, address };
+    if (is_website_enabled !== undefined) {
+      updateData.is_website_enabled = is_website_enabled;
+    }
+    
     await db('stores')
       .where({ id: req.storeId })
-      .update({ nameAr, nameEn, vatNumber, phone, address });
+      .update(updateData);
 
     if (req.user) {
       await logAudit(

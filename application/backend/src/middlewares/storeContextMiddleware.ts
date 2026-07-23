@@ -42,11 +42,30 @@ export const storeContextMiddleware = async (req: Request, res: Response, next: 
       return res.status(500).json({ error: err.message });
     }
   } else if (role === 'manager' || role === 'cashier') {
-    if (!store_id) {
+    const xStoreId = req.headers['x-store-id'] as string;
+    const targetStoreId = xStoreId || store_id;
+    
+    if (!targetStoreId) {
       return res.status(403).json({ error: 'Forbidden: User is not assigned to any store' });
     }
-    req.storeId = store_id;
-    next();
+
+    try {
+      const dbUser = await db('users').where({ id: user.id }).first();
+      if (!dbUser) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      
+      const assignedStoreIds = dbUser.store_ids ? JSON.parse(dbUser.store_ids) : (dbUser.store_id ? [dbUser.store_id] : []);
+      
+      if (!assignedStoreIds.includes(targetStoreId)) {
+        return res.status(403).json({ error: 'Forbidden: You are not assigned to this store' });
+      }
+      
+      req.storeId = targetStoreId;
+      next();
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
   } else {
     return res.status(403).json({ error: 'Forbidden: Unknown user role' });
   }

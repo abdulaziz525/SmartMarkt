@@ -33,6 +33,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setIsLoading(true);
     try {
       await apiService.login(loginIdentifier, loginPassword);
+      await apiService.logAudit('LOGIN', `User ${loginIdentifier} logged in to the system.`);
       onLogin();
     } catch (err: any) {
       setError(err.message || ar.defaultError);

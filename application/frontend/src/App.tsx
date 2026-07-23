@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { Storefront } from './features/storefront/Storefront';
 import { SignupFlow } from './features/auth/SignupFlow';
 import {
   LayoutDashboard,
@@ -17,7 +18,7 @@ import {
   Search,
   Barcode,
   X,
-  FileSpreadsheet,
+  ArrowLeft,
   AlertTriangle,
   TrendingUp,
   Printer,
@@ -33,18 +34,18 @@ import {
   ToggleLeft,
   ToggleRight,
   CheckCircle2,
-  MapPin,
   Store,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { apiService } from './services/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { useStore } from './context/StoreContext';
+import { BranchManagement } from './components/BranchManagement';
 import type { StoreInfo } from './services/api';
 import type { Product, CartItem, Invoice, Supplier, PurchaseOrder, User as AppUser, UserRole, AuditLog, PaymentMethod, Branch } from './types';
 
 export default function App() {
-  const { activeStoreId, fetchStores } = useStore();
+  const { activeStoreId, setActiveStoreId, stores, fetchStores } = useStore();
   // Localization & Theme state
   const [lang, setLang] = useState<'ar' | 'en'>('ar');
   
@@ -66,10 +67,13 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Settings sub-tab
-  const [settingsTab, setSettingsTab] = useState<'store' | 'branches' | 'employees'>('store');
+  const [settingsTab, setSettingsTab] = useState<'store' | 'branches' | 'employees' | 'customers'>('store');
+  const [isEditingStore, setIsEditingStore] = useState(false);
 
   // Employee modal state
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [isPowersModalOpen, setIsPowersModalOpen] = useState(false);
+  const [selectedEmployeeForPowers, setSelectedEmployeeForPowers] = useState<AppUser | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<AppUser | null>(null);
   const [empForm, setEmpForm] = useState({
     fullName: '',
@@ -77,16 +81,6 @@ export default function App() {
     password: '',
     role: 'cashier' as 'manager' | 'cashier',
     store_ids: [] as string[],
-  });
-
-  // Branch modal state
-  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
-  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
-  const [branchForm, setBranchForm] = useState({
-    nameAr: '',
-    nameEn: '',
-    location: '',
-    status: 'active' as 'active' | 'inactive',
   });
 
   // POS State
@@ -98,14 +92,18 @@ export default function App() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [cashReceived, setCashReceived] = useState<string>('');
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [activeCustomer, setActiveCustomer] = useState<any>(null);
   
   // Inventory State
   const [invSearch, setInvSearch] = useState<string>('');
   const [invCategory, setInvCategory] = useState<string>('all');
   const [invAlertFilter, setInvAlertFilter] = useState<'all' | 'low' | 'expiry'>('all');
+  const [allBranchesAlerts, setAllBranchesAlerts] = useState<any[]>([]);
+  const [inventoryViewBranchId, setInventoryViewBranchId] = useState<string | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState<boolean>(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [csvFileContent, setCsvFileContent] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Suppliers & PO State
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState<boolean>(false);
@@ -134,15 +132,16 @@ export default function App() {
         try { return await promise; } catch { return fallback; }
       };
 
-      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData, branchesData] = await Promise.all([
+      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData, branchesData, customersData] = await Promise.all([
         safeFetch(apiService.getProducts(), []),
         safeFetch(apiService.getInvoices(), []),
         safeFetch(apiService.getSuppliers(), []),
         safeFetch(apiService.getPurchaseOrders(), []),
         safeFetch(apiService.getAuditLogs(), []),
-        safeFetch(apiService.getStoreInfo(), null),
+        safeFetch(apiService.getStoreInfo(), { nameAr: 'المتجر', nameEn: 'Store', vatNumber: '', phone: '', address: '' }),
         safeFetch(apiService.getUsers(), []),
         safeFetch(apiService.getBranches(), []),
+        safeFetch(apiService.getCustomers(), []),
       ]);
       setProducts(productsData);
       setInvoices(invoicesData);
@@ -152,6 +151,45 @@ export default function App() {
       if (storeData) setStoreInfo(storeData);
       setUsersList(usersData);
       setBranches(branchesData);
+      setCustomers(customersData);
+
+      if (branchesData && branchesData.length > 0) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const alerts: any[] = [];
+        await Promise.all(branchesData.map(async (branch: any) => {
+          try {
+            const prods = await apiService.getProducts(branch.id);
+            let redCount = 0;
+            let yellowCount = 0;
+            prods.forEach(p => {
+              let isRed = false;
+              let isYellow = false;
+              if (p.isPerishable && p.expiryDate) {
+                const exp = new Date(p.expiryDate);
+                const diff = exp.getTime() - today.getTime();
+                const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                if (daysLeft <= 1) isRed = true;
+                else if (daysLeft <= 5) isYellow = true;
+              }
+              if (p.quantity <= 10) isYellow = true;
+              
+              if (isRed) redCount++;
+              else if (isYellow) yellowCount++;
+            });
+            if (redCount > 0 || yellowCount > 0) {
+              alerts.push({
+                storeId: branch.id,
+                nameAr: branch.nameAr,
+                nameEn: branch.nameEn,
+                redCount,
+                yellowCount
+              });
+            }
+          } catch (e) {}
+        }));
+        setAllBranchesAlerts(alerts);
+      }
     } catch (err) {
       console.error('Failed to refresh data from API:', err);
     }
@@ -208,6 +246,19 @@ export default function App() {
     }
   }, [activeTab]);
 
+  // Track session exit (closing page/browser)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isAuthenticated && currentUser) {
+        apiService.logAuditBeacon('SESSION_END', `User ${currentUser.username} closed the application or device.`);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isAuthenticated, currentUser]);
+
   // Helper translations dictionary
   const t = {
     dashboard: { ar: 'الرئيسية', en: 'Dashboard' },
@@ -251,6 +302,15 @@ export default function App() {
     return requiredRoles.includes(currentUser.role);
   };
 
+  // Check explicit permissions, fallback to roles
+  const hasPerm = (key: string, requiredRoles: UserRole[]): boolean => {
+    if (currentUser.role === 'owner') return true;
+    if (currentUser.permissions && typeof currentUser.permissions[key] === 'boolean') {
+      return currentUser.permissions[key];
+    }
+    return requiredRoles.includes(currentUser.role);
+  };
+
   // Categories helper
   const uniqueCategories = ['all', ...Array.from(new Set(products.map(p => p.category)))];
 
@@ -271,6 +331,21 @@ export default function App() {
   };
 
   const addToCart = (product: Product) => {
+    if (product.isPerishable && product.expiryDate) {
+      const exp = new Date(product.expiryDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = exp.getTime() - today.getTime();
+      const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+      
+      if (daysLeft <= 5) {
+        alert(lang === 'ar' 
+          ? 'النظام يرفض بيع هذا المنتج لأنه منتهي الصلاحية أو تبقى على انتهائه 5 أيام أو أقل!' 
+          : 'System refuses to sell this product because it is expired or has 5 days or less until expiry!');
+        return;
+      }
+    }
+
     const existing = cart.find(item => item.product.id === product.id);
     if (existing) {
       if (existing.quantity >= product.quantity) {
@@ -398,7 +473,7 @@ export default function App() {
   };
 
   const handleProductDelete = async (id: string) => {
-    if (!hasAccess(['owner', 'manager'])) {
+    if (!hasPerm('inventory', ['owner', 'manager'])) {
       alert(lang === 'ar' ? 'لا تملك الصلاحية للحدف!' : 'You do not have permission to delete products!');
       return;
     }
@@ -408,21 +483,27 @@ export default function App() {
     }
   };
 
-  const handleCsvImport = async () => {
-    if (!csvFileContent.trim()) {
-      alert(lang === 'ar' ? 'الرجاء إدخال بيانات CSV أولاً' : 'Please input CSV data first');
-      return;
-    }
-    const { products: parsedProducts, errors } = apiService.parseCSV(csvFileContent);
-    if (errors.length > 0) {
-      alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \n' : 'Imported with errors: \n') + errors.slice(0, 5).join('\n'));
-    }
-    if (parsedProducts.length > 0) {
-      const result = await apiService.importProductsFromCSV(parsedProducts);
-      alert(lang === 'ar' ? `تم استيراد ${result.successCount} منتج بنجاح!` : `Successfully imported ${result.successCount} products!`);
-    }
-    setCsvFileContent('');
-    await refreshData();
+  const handleCsvImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const { products: parsedProducts, errors } = apiService.parseCSV(text);
+      if (errors.length > 0) {
+        alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \n' : 'Imported with errors: \n') + errors.slice(0, 5).join('\n'));
+      }
+      if (parsedProducts.length > 0) {
+        const result = await apiService.importProductsFromCSV(parsedProducts);
+        alert(lang === 'ar' ? `تم استيراد ${result.successCount} منتج بنجاح!` : `Successfully imported ${result.successCount} products!`);
+      }
+      await refreshData();
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleCsvExport = () => {
@@ -702,17 +783,6 @@ export default function App() {
 
   const branchMetrics = getBranchMetrics();
 
-  // Low stock and expiring alerts count
-  const lowStockCount = products.filter(p => p.quantity <= p.lowStockThreshold).length;
-  
-  const perishableAlerts = products.filter(p => {
-    if (!p.isPerishable || !p.expiryDate) return false;
-    const exp = new Date(p.expiryDate);
-    const today = new Date();
-    const diff = exp.getTime() - today.getTime();
-    const diffDays = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return diffDays <= 7; // Alert if within 7 days
-  });
 
   if (isLoading) {
     return (
@@ -733,6 +803,15 @@ export default function App() {
           <p className="animate-pulse">{lang === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
         </div>
       </div>
+    );
+  }
+
+  const isStorefront = window.location.pathname.startsWith('/store/');
+  if (isStorefront) {
+    return (
+      <Routes>
+        <Route path="/store/:storeId" element={<Storefront />} />
+      </Routes>
     );
   }
 
@@ -773,14 +852,26 @@ export default function App() {
         {/* Global Controls & Status Bar */}
         <div className="flex items-center gap-4">
           {/* Dashboard Quick Alerts */}
-          {(lowStockCount > 0 || perishableAlerts.length > 0) && (
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>
-                {lang === 'ar' 
-                  ? `${lowStockCount} منتجات منخفضة، ${perishableAlerts.length} قاربت على الانتهاء` 
-                  : `${lowStockCount} low stock, ${perishableAlerts.length} expiring soon`}
-              </span>
+          {allBranchesAlerts.length > 0 && (
+            <div className="hidden md:flex items-center gap-2">
+              {allBranchesAlerts.some(a => a.redCount > 0) && (
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="flex items-center justify-center p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-500 transition"
+                  title={lang === 'ar' ? 'منتجات منتهية أو قاربت جداً' : 'Expired or 1 day left'}
+                >
+                  <AlertTriangle className="h-5 w-5 shrink-0 animate-pulse" />
+                </button>
+              )}
+              {allBranchesAlerts.some(a => a.yellowCount > 0) && (
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="flex items-center justify-center p-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 transition"
+                  title={lang === 'ar' ? 'مخزون منخفض أو يقترب من الانتهاء' : 'Low stock or expiring'}
+                >
+                  <AlertTriangle className="h-5 w-5 shrink-0" />
+                </button>
+              )}
             </div>
           )}
 
@@ -788,6 +879,13 @@ export default function App() {
           {/* Logout Button */}
           <button
             onClick={async () => {
+              if (currentUser) {
+                try {
+                  await apiService.logAudit('LOGOUT', `User ${currentUser.username} manually logged out.`);
+                } catch (e) {
+                  // Ignore audit log error on logout
+                }
+              }
               await apiService.logout();
               setIsAuthenticated(false);
               window.location.reload();
@@ -813,7 +911,7 @@ export default function App() {
         {/* Navigation Sidebar */}
         <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
           <nav className="flex-1 p-4 space-y-1">
-            {hasAccess(['owner', 'manager']) && (
+            {hasPerm('dashboard', ['owner', 'manager']) && (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -841,7 +939,7 @@ export default function App() {
               </button>
             )}
 
-            {hasAccess(['owner', 'manager']) && (
+            {hasPerm('inventory', ['owner', 'manager']) && (
               <button
                 onClick={() => setActiveTab('inventory')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -855,7 +953,7 @@ export default function App() {
               </button>
             )}
 
-            {hasAccess(['owner', 'manager', 'cashier']) && (
+            {hasPerm('suppliers', ['owner', 'manager', 'cashier']) && (
               <button
                 onClick={() => setActiveTab('suppliers')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -869,7 +967,7 @@ export default function App() {
               </button>
             )}
 
-            {hasAccess(['owner', 'manager']) && (
+            {hasPerm('reports', ['owner', 'manager']) && (
               <button
                 onClick={() => setActiveTab('reports')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -883,7 +981,7 @@ export default function App() {
               </button>
             )}
 
-            {hasAccess(['owner', 'manager']) && (
+            {hasPerm('audit_logs', ['owner', 'manager']) && (
               <button
                 onClick={() => setActiveTab('audit')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -897,7 +995,19 @@ export default function App() {
               </button>
             )}
 
-            {hasAccess(['owner']) && (
+            {hasPerm('storefront_link', ['owner']) && storeInfo?.is_website_enabled && (
+              <a
+                href={`/store/${activeStoreId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                <Globe className="h-5 w-5 text-indigo-400" />
+                <span>{lang === 'ar' ? 'المتجر الإلكتروني' : 'Online Store'}</span>
+              </a>
+            )}
+
+            {hasPerm('settings', ['owner']) && (
               <button
                 onClick={() => setActiveTab('settings')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
@@ -932,6 +1042,56 @@ export default function App() {
               ======================================================== */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
+
+              {/* Branch Alerts Table */}
+              {allBranchesAlerts.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-slate-400" />
+                    <h3 className="font-bold text-slate-200 text-sm">
+                      {lang === 'ar' ? 'تنبيهات فروع المتجر' : 'Store Branches Alerts'}
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-800/50 text-xs text-slate-400 border-b border-slate-800">
+                          <th className={`p-3 font-semibold ${lang === 'ar' ? 'text-right' : 'text-left'}`}>{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
+                          <th className="p-3 font-semibold text-center text-red-400">{lang === 'ar' ? 'تحذير حرج (يوم أو أقل)' : 'Critical (1 day or less)'}</th>
+                          <th className="p-3 font-semibold text-center text-amber-400">{lang === 'ar' ? 'تنبيه (5 أيام أو مخزون منخفض)' : 'Warning (5 days / qty <= 10)'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm">
+                        {allBranchesAlerts.map(a => (
+                          <tr key={a.storeId} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                            <td className={`p-3 font-bold text-slate-200 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                              {lang === 'ar' ? a.nameAr : a.nameEn}
+                            </td>
+                            <td className="p-3 text-center">
+                              {a.redCount > 0 ? (
+                                <span className="bg-red-500/20 text-red-500 px-3 py-1 rounded-full border border-red-500/30 font-mono font-bold animate-pulse inline-block">
+                                  {a.redCount}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {a.yellowCount > 0 ? (
+                                <span className="bg-amber-500/10 text-amber-400 px-3 py-1 rounded-full border border-amber-500/30 font-mono font-bold inline-block">
+                                  {a.yellowCount}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Numerical Metrics Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1167,7 +1327,7 @@ export default function App() {
                           {/* POS Controls for adjustments */}
                           <div className="flex flex-wrap items-center gap-3">
                             {/* Manual Price Override for Owner/Manager */}
-                            {hasAccess(['owner', 'manager']) ? (
+                            {hasPerm('advanced_pos', ['owner', 'manager']) ? (
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] text-slate-500">{lang === 'ar' ? 'السعر:' : 'Price:'}</span>
                                 <input
@@ -1402,7 +1562,51 @@ export default function App() {
               TAB: INVENTORY MANAGEMENT
               ======================================================== */}
           {activeTab === 'inventory' && (
+            !inventoryViewBranchId ? (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-2">{lang === 'ar' ? 'اختر الفرع لإدارة المخزون' : 'Select Branch for Inventory'}</h2>
+                  <p className="text-slate-400 text-sm mb-6">{lang === 'ar' ? 'اختر الفرع لعرض وإدارة مخزونه' : 'Select a branch to view and manage its inventory'}</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {stores.map(store => (
+                    <button
+                      key={store.id}
+                      onClick={async () => {
+                        setActiveStoreId(store.id);
+                        setInventoryViewBranchId(store.id);
+                        await refreshData();
+                      }}
+                      className="bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-3 transition group shadow-sm"
+                    >
+                      <div className="h-12 w-12 rounded-full bg-indigo-500/10 flex items-center justify-center group-hover:scale-110 transition">
+                        <Building2 className="h-6 w-6 text-indigo-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-white font-bold">{lang === 'ar' ? store.nameAr : store.nameEn}</h3>
+                        <p className="text-xs text-slate-500 mt-1">{store.location || (lang === 'ar' ? 'إدارة المخزون' : 'Inventory Management')}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="space-y-6">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setInventoryViewBranchId(null)}
+                  className="flex items-center justify-center h-10 w-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+                >
+                  <ArrowLeft className={`h-5 w-5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+                </button>
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    {lang === 'ar' ? stores.find(s => s.id === inventoryViewBranchId)?.nameAr : stores.find(s => s.id === inventoryViewBranchId)?.nameEn}
+                  </h2>
+                  <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة مخزون الفرع' : 'Branch Inventory Management'}</p>
+                </div>
+              </div>
+
               {/* Toolbar */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-sm">
                 <div className="flex flex-wrap items-center gap-3 flex-1">
@@ -1444,6 +1648,21 @@ export default function App() {
 
                 {/* Import / Export / Add Buttons */}
                 <div className="flex flex-wrap gap-2">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    ref={fileInputRef}
+                    onChange={handleCsvImport}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-xs rounded-lg px-3 py-2 font-bold transition"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>{lang === 'ar' ? 'استيراد CSV' : 'Import CSV'}</span>
+                  </button>
+
                   <button
                     onClick={handleCsvExport}
                     className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs rounded-lg px-3 py-2 font-bold transition"
@@ -1474,35 +1693,6 @@ export default function App() {
                   >
                     <Plus className="h-4 w-4" />
                     <span>{lang === 'ar' ? 'إضافة منتج جديد' : 'New Product'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Bulk CSV Import Panel */}
-              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
-                    {lang === 'ar' ? 'استيراد منتجات دفعات (CSV)' : 'Bulk Import Products (CSV)'}
-                  </h3>
-                  <div className="text-[10px] text-slate-500">
-                    Header: barcode,nameAr,nameEn,category,costPrice,sellingPrice,quantity,unit,lowStockThreshold
-                  </div>
-                </div>
-                <div className="flex gap-3 flex-col sm:flex-row">
-                  <textarea
-                    rows={2}
-                    value={csvFileContent}
-                    onChange={(e) => setCsvFileContent(e.target.value)}
-                    placeholder='e.g. 6281001234567,عصير تفاح,Apple Juice,مشروبات,1.50,2.50,100,pcs,10'
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-left focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={handleCsvImport}
-                    className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-lg px-4 py-3 text-xs flex items-center justify-center gap-2 transition"
-                  >
-                    <Upload className="h-4 w-4" />
-                    <span>{lang === 'ar' ? 'استيراد الآن' : 'Import'}</span>
                   </button>
                 </div>
               </div>
@@ -1637,6 +1827,7 @@ export default function App() {
                 </div>
               </div>
             </div>
+            )
           )}
 
           {/* ========================================================
@@ -1932,7 +2123,14 @@ export default function App() {
                             <td className="p-3 font-mono text-slate-500">{cogs.toFixed(2)}</td>
                             <td className={`p-3 font-mono font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{net.toFixed(2)}</td>
                             <td className="p-3 font-medium text-slate-300 text-xs">
-                              {inv.paymentMethod === 'cash' ? (lang === 'ar' ? '💵 كاش' : 'Cash') : inv.paymentMethod === 'card' ? (lang === 'ar' ? '💳 مدى / بطاقة' : 'Card') : (lang === 'ar' ? '🔄 دفع مشترك' : 'Split')}
+                              <div className="flex flex-col gap-1">
+                                <span>{inv.paymentMethod === 'cash' ? (lang === 'ar' ? '💵 كاش' : 'Cash') : inv.paymentMethod === 'card' ? (lang === 'ar' ? '💳 مدى / بطاقة' : 'Card') : inv.paymentMethod === 'installments' ? '⏳ BNPL Installments' : inv.paymentMethod === 'deferred' ? '⏳ Deferred' : (lang === 'ar' ? '🔄 دفع مشترك' : 'Split')}</span>
+                                {inv.fulfillment_mode && inv.fulfillment_mode !== 'in_store' && (
+                                  <span className="text-[10px] uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full self-start">
+                                    {inv.fulfillment_mode === 'pickup' ? '📦 Store Pickup' : '🚚 Delivery'}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-3 text-center">
                               <button
@@ -2009,6 +2207,7 @@ export default function App() {
                   { key: 'store',     labelAr: 'إعدادات المتجر',   labelEn: 'Store Info',  Icon: Store },
                   { key: 'branches',  labelAr: 'إدارة الفروع',      labelEn: 'Branches',    Icon: Building2 },
                   { key: 'employees', labelAr: 'إدارة الموظفين',    labelEn: 'Employees',   Icon: Users },
+                  { key: 'customers', labelAr: 'إدارة العملاء',      labelEn: 'Customers',   Icon: Users },
                 ] as const).map(({ key, labelAr, labelEn, Icon }) => (
                   <button
                     key={key}
@@ -2030,9 +2229,16 @@ export default function App() {
               ══════════════════════════════════ */}
               {settingsTab === 'store' && (
                 <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm max-w-2xl space-y-6">
-                  <div>
-                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إعدادات المؤسسة والفواتير' : 'Store & Invoice Settings'}</h3>
-                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'البيانات الأساسية التي تظهر في فواتير ZATCA وفي الباركود الثنائي' : 'Essential settings injected in ZATCA compliant e-invoices'}</p>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إعدادات المؤسسة والفواتير' : 'Store & Invoice Settings'}</h3>
+                      <p className="text-xs text-slate-400">{lang === 'ar' ? 'البيانات الأساسية التي تظهر في فواتير ZATCA وفي الباركود الثنائي' : 'Essential settings injected in ZATCA compliant e-invoices'}</p>
+                    </div>
+                    {hasAccess(['owner']) && !isEditingStore && (
+                      <button type="button" onClick={() => setIsEditingStore(true)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition font-medium">
+                        {lang === 'ar' ? 'تعديل' : 'Edit'}
+                      </button>
+                    )}
                   </div>
                   <form
                     onSubmit={async (e) => {
@@ -2043,133 +2249,81 @@ export default function App() {
                       }
                       const formData = new FormData(e.currentTarget);
                       const info: StoreInfo = {
-                        nameAr: formData.get('nameAr') as string,
-                        nameEn: formData.get('nameEn') as string,
+                        nameAr: (formData.get('name') || formData.get('nameAr')) as string,
+                        nameEn: (formData.get('name') || formData.get('nameAr')) as string,
                         vatNumber: formData.get('vatNumber') as string,
                         phone: formData.get('phone') as string,
                         address: formData.get('address') as string,
+                        is_website_enabled: formData.get('is_website_enabled') === 'on'
                       };
                       await apiService.updateStoreInfo(info);
                       setStoreInfo(info);
+                      setIsEditingStore(false);
                       alert(lang === 'ar' ? 'تم حفظ التعديلات بنجاح!' : 'Store configuration updated successfully!');
                     }}
                     className="space-y-4 text-slate-300 text-sm"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالعربية):' : 'Store Name (Arabic):'}</label>
-                        <input type="text" name="nameAr" defaultValue={storeInfo?.nameAr || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="font-bold">{lang === 'ar' ? 'اسم المتجر (بالإنجليزية):' : 'Store Name (English):'}</label>
-                        <input type="text" name="nameEn" defaultValue={storeInfo?.nameEn || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                      </div>
+                    <div className="space-y-1">
+                      <label className="font-bold">{lang === 'ar' ? 'اسم المتجر:' : 'Store Name:'}</label>
+                      <input type="text" name="name" disabled={!isEditingStore} defaultValue={storeInfo?.nameAr || storeInfo?.nameEn || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="font-bold">{lang === 'ar' ? 'الرقم الضريبي (15 خانة):' : 'VAT Registration No (15 digits):'}</label>
-                        <input type="text" name="vatNumber" maxLength={15} defaultValue={storeInfo?.vatNumber || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input type="text" name="vatNumber" maxLength={15} disabled={!isEditingStore} defaultValue={storeInfo?.vatNumber || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed" />
                       </div>
                       <div className="space-y-1">
                         <label className="font-bold">{lang === 'ar' ? 'رقم الهاتف:' : 'Phone Contact:'}</label>
-                        <input type="text" name="phone" defaultValue={storeInfo?.phone || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input type="text" name="phone" disabled={!isEditingStore} defaultValue={storeInfo?.phone || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed" />
                       </div>
                     </div>
                     <div className="space-y-1">
                       <label className="font-bold">{lang === 'ar' ? 'العنوان الجغرافي:' : 'Address Location:'}</label>
-                      <input type="text" name="address" defaultValue={storeInfo?.address || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                      <input type="text" name="address" disabled={!isEditingStore} defaultValue={storeInfo?.address || ''} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed" />
                     </div>
-                    <button type="submit" className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition">
-                      {lang === 'ar' ? 'حفظ إعدادات المؤسسة' : 'Save Store Details'}
-                    </button>
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
+                      <div>
+                        <label className="font-bold text-slate-200 block mb-1">
+                          {lang === 'ar' ? 'تفعيل المتجر الإلكتروني' : 'Enable Online Store'}
+                        </label>
+                        <p className="text-xs text-slate-400">
+                          {lang === 'ar' 
+                            ? 'عند التعطيل، لن يتمكن العملاء من الوصول إلى موقع التجارة الإلكترونية العام لهذا الفرع.' 
+                            : 'When disabled, the public-facing website will be inaccessible to customers.'}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          name="is_website_enabled" 
+                          disabled={!isEditingStore}
+                          defaultChecked={storeInfo?.is_website_enabled ?? true} 
+                          className="sr-only peer disabled:cursor-not-allowed" 
+                        />
+                        <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                      </label>
+                    </div>
+                    {isEditingStore && (
+                      <div className="flex items-center gap-3 pt-2">
+                        <button type="submit" className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition">
+                          {lang === 'ar' ? 'حفظ إعدادات المؤسسة' : 'Save Store Details'}
+                        </button>
+                        <button type="button" onClick={() => setIsEditingStore(false)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition">
+                          {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                        </button>
+                      </div>
+                    )}
                   </form>
                 </div>
               )}
 
-              {/* ══════════════════════════════════
-                  TAB: BRANCHES
-              ══════════════════════════════════ */}
               {settingsTab === 'branches' && (
-                <div className="space-y-4 max-w-4xl">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إدارة الفروع' : 'Branch Management'}</h3>
-                      <p className="text-xs text-slate-400">{lang === 'ar' ? `${branches.length} فرع مسجل في المؤسسة` : `${branches.length} branch(es) in your organization`}</p>
-                    </div>
-                    {hasAccess(['owner']) && (
-                      <button
-                        onClick={() => {
-                          setEditingBranch(null);
-                          setBranchForm({ nameAr: '', nameEn: '', location: '', status: 'active' });
-                          setIsBranchModalOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20 text-sm"
-                      >
-                        <Plus className="h-4 w-4" />
-                        {lang === 'ar' ? 'إضافة فرع جديد' : 'Add Branch'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Branches List */}
-                  {branches.length === 0 ? (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
-                      <Building2 className="h-12 w-12 text-slate-700 mx-auto mb-3" />
-                      <p className="text-slate-400">{lang === 'ar' ? 'لا يوجد فروع مسجلة بعد' : 'No branches registered yet'}</p>
-                    </div>
-                  ) : (
-                    <div className="grid gap-3">
-                      {branches.map((branch) => (
-                        <div key={branch.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between hover:border-slate-700 transition group">
-                          <div className="flex items-center gap-4">
-                            <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${branch.status === 'active' ? 'bg-emerald-500/10' : 'bg-slate-800'}`}>
-                              <Building2 className={`h-5 w-5 ${branch.status === 'active' ? 'text-emerald-400' : 'text-slate-500'}`} />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-bold text-white">{lang === 'ar' ? branch.nameAr : branch.nameEn}</p>
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${branch.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
-                                  {branch.status === 'active' ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'معطل' : 'Inactive')}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 mt-0.5">
-                                <MapPin className="h-3 w-3 text-slate-500" />
-                                <p className="text-xs text-slate-400">{branch.location}</p>
-                              </div>
-                            </div>
-                          </div>
-                          {hasAccess(['owner']) && (
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                              <button
-                                onClick={() => {
-                                  setEditingBranch(branch);
-                                  setBranchForm({ nameAr: branch.nameAr, nameEn: branch.nameEn, location: branch.location, status: branch.status });
-                                  setIsBranchModalOpen(true);
-                                }}
-                                className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-400 transition"
-                                title={lang === 'ar' ? 'تعديل' : 'Edit'}
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (!confirm(lang === 'ar' ? `هل تريد حذف الفرع "${branch.nameAr}"؟ سيتم حذف جميع بياناته.` : `Delete branch "${branch.nameEn}"? All data will be removed.`)) return;
-                                  await apiService.deleteBranch(branch.id);
-                                  await refreshData();
-                                }}
-                                className="p-2 rounded-lg bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 transition"
-                                title={lang === 'ar' ? 'حذف' : 'Delete'}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <BranchManagement 
+                  branches={branches} 
+                  refreshData={refreshData} 
+                  lang={lang} 
+                  hasAccess={hasAccess} 
+                />
               )}
 
               {/* ══════════════════════════════════
@@ -2275,6 +2429,17 @@ export default function App() {
                                 >
                                   {emp.active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
                                 </button>
+                                {/* Powers */}
+                                <button
+                                  onClick={() => {
+                                    setSelectedEmployeeForPowers(emp);
+                                    setIsPowersModalOpen(true);
+                                  }}
+                                  className="p-2 rounded-lg bg-slate-800 hover:bg-purple-600/20 text-slate-400 hover:text-purple-400 transition"
+                                  title={lang === 'ar' ? 'الصلاحيات' : 'Powers'}
+                                >
+                                  <Shield className="h-4 w-4" />
+                                </button>
                                 {/* Edit */}
                                 <button
                                   onClick={() => {
@@ -2315,111 +2480,66 @@ export default function App() {
                 </div>
               )}
 
+              {settingsTab === 'customers' && (
+                <div className="space-y-4 max-w-5xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'إدارة العملاء' : 'Customer Management'}</h3>
+                      <p className="text-xs text-slate-400">{lang === 'ar' ? `${customers.length} عميل مسجل` : `${customers.length} registered customer(s)`}</p>
+                    </div>
+                  </div>
+
+                  {customers.length === 0 ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+                      <Users className="h-12 w-12 text-slate-700 mx-auto mb-3" />
+                      <p className="text-slate-400">{lang === 'ar' ? 'لا يوجد عملاء مسجلين' : 'No customers registered'}</p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-800/50 text-xs uppercase font-semibold text-slate-400">
+                          <tr>
+                            <th className="p-4">{lang === 'ar' ? 'اسم العميل' : 'Name'}</th>
+                            <th className="p-4">{lang === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
+                            <th className="p-4">{lang === 'ar' ? 'البريد الإلكتروني' : 'Email'}</th>
+                            <th className="p-4 text-center">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 text-sm text-white">
+                          {customers.map((c: any) => (
+                            <tr key={c.id} className="hover:bg-slate-800/50 transition">
+                              <td className="p-4 font-bold">{c.name}</td>
+                              <td className="p-4 font-mono text-slate-300">{c.phone}</td>
+                              <td className="p-4 text-slate-400">{c.email || '-'}</td>
+                              <td className="p-4 text-center">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const details = await apiService.getCustomer(c.id);
+                                      setActiveCustomer(details);
+                                    } catch (err) {
+                                      console.error(err);
+                                      alert(lang === 'ar' ? 'حدث خطأ أثناء جلب التفاصيل' : 'Error fetching details');
+                                    }
+                                  }}
+                                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded transition"
+                                >
+                                  {lang === 'ar' ? 'عرض الفواتير والتفاصيل' : 'View Bills & Details'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
           )}
 
-          {/* ══════════════════════════════════════════════════════════
-              MODAL: BRANCH ADD / EDIT
-          ══════════════════════════════════════════════════════════ */}
-          {isBranchModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-md shadow-2xl p-6 space-y-5">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-xl bg-indigo-600/20 flex items-center justify-center">
-                      <Building2 className="h-5 w-5 text-indigo-400" />
-                    </div>
-                    <h3 className="text-lg font-bold text-white">
-                      {editingBranch ? (lang === 'ar' ? 'تعديل الفرع' : 'Edit Branch') : (lang === 'ar' ? 'إضافة فرع جديد' : 'Add New Branch')}
-                    </h3>
-                  </div>
-                  <button onClick={() => setIsBranchModalOpen(false)} className="text-slate-400 hover:text-white"><X className="h-5 w-5" /></button>
-                </div>
-                <div className="space-y-4 text-sm text-slate-300">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="font-semibold text-slate-300">{lang === 'ar' ? 'اسم الفرع (عربي)' : 'Branch Name (AR)'}</label>
-                      <input
-                        type="text"
-                        value={branchForm.nameAr}
-                        onChange={e => setBranchForm(p => ({ ...p, nameAr: e.target.value }))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        placeholder="مثل: الفرع الرئيسي"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="font-semibold text-slate-300">{lang === 'ar' ? 'اسم الفرع (إنجليزي)' : 'Branch Name (EN)'}</label>
-                      <input
-                        type="text"
-                        value={branchForm.nameEn}
-                        onChange={e => setBranchForm(p => ({ ...p, nameEn: e.target.value }))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        placeholder="e.g. Main Branch"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-300">{lang === 'ar' ? 'العنوان / الموقع' : 'Address / Location'}</label>
-                    <input
-                      type="text"
-                      value={branchForm.location}
-                      onChange={e => setBranchForm(p => ({ ...p, location: e.target.value }))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      placeholder={lang === 'ar' ? 'الرياض، حي العليا' : 'Riyadh, Al Olaya'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-300">{lang === 'ar' ? 'الحالة' : 'Status'}</label>
-                    <div className="flex gap-2">
-                      {(['active', 'inactive'] as const).map(s => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setBranchForm(p => ({ ...p, status: s }))}
-                          className={`flex-1 py-2 rounded-lg border font-semibold text-xs transition ${
-                            branchForm.status === s
-                              ? s === 'active' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
-                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
-                          }`}
-                        >
-                          {s === 'active' ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'معطل' : 'Inactive')}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => setIsBranchModalOpen(false)}
-                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition"
-                  >
-                    {lang === 'ar' ? 'إلغاء' : 'Cancel'}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!branchForm.nameAr || !branchForm.nameEn || !branchForm.location) {
-                        alert(lang === 'ar' ? 'يرجى تعبئة جميع الحقول' : 'Please fill all fields');
-                        return;
-                      }
-                      const branchData: Branch = {
-                        id: editingBranch?.id || `branch-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                        nameAr: branchForm.nameAr,
-                        nameEn: branchForm.nameEn,
-                        location: branchForm.location,
-                        status: branchForm.status,
-                      };
-                      await apiService.saveBranch(branchData);
-                      setIsBranchModalOpen(false);
-                      await refreshData();
-                    }}
-                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-600/20"
-                  >
-                    {editingBranch ? (lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes') : (lang === 'ar' ? 'إنشاء الفرع' : 'Create Branch')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+
 
           {/* ══════════════════════════════════════════════════════════
               MODAL: EMPLOYEE ADD / EDIT
@@ -2604,6 +2724,92 @@ export default function App() {
             </div>
           )}
 
+          {/* Powers Modal */}
+          {isPowersModalOpen && selectedEmployeeForPowers && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-indigo-400" />
+                    {lang === 'ar' ? 'صلاحيات الموظف' : 'Employee Powers'} - {selectedEmployeeForPowers.nameAr}
+                  </h3>
+                  <button onClick={() => { setIsPowersModalOpen(false); setSelectedEmployeeForPowers(null); }} className="text-slate-400 hover:text-white"><X className="h-5 w-5" /></button>
+                </div>
+                <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                  {[
+                    { key: 'dashboard', labelAr: 'لوحة التحكم والإحصائيات', labelEn: 'Dashboard & Statistics', descAr: 'عرض المبيعات والأرباح والتنبيهات', descEn: 'View sales, profits, and alerts' },
+                    { key: 'inventory', labelAr: 'إدارة المخزون', labelEn: 'Inventory Management', descAr: 'إضافة وتعديل وحذف المنتجات والكميات', descEn: 'Add, edit, delete products and quantities' },
+                    { key: 'suppliers', labelAr: 'الموردون وأوامر الشراء', labelEn: 'Suppliers & POs', descAr: 'إدارة الموردين والمدفوعات واستلام الشحنات', descEn: 'Manage suppliers, payments, and shipments' },
+                    { key: 'reports', labelAr: 'التقارير والمحاسبة', labelEn: 'Reports & Accounting', descAr: 'عرض التقارير المالية وسجل المبيعات اليومي', descEn: 'View financial reports and daily sales' },
+                    { key: 'advanced_pos', labelAr: 'نقطة بيع متقدمة', labelEn: 'Advanced POS', descAr: 'تعديل الأسعار يدوياً وتطبيق الخصومات', descEn: 'Manually adjust prices and apply discounts' },
+                    { key: 'audit_logs', labelAr: 'سجل العمليات (المراقبة)', labelEn: 'Audit Logs', descAr: 'مراقبة كافة حركات النظام للموظفين', descEn: 'Monitor all system actions by employees' },
+                  ].map(power => {
+                    const isManager = selectedEmployeeForPowers.role === 'manager';
+                    const hasPerm = selectedEmployeeForPowers.permissions && typeof selectedEmployeeForPowers.permissions[power.key] === 'boolean' 
+                        ? selectedEmployeeForPowers.permissions[power.key] 
+                        : isManager;
+
+                    return (
+                      <div key={power.key} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                        <div className="pr-4">
+                          <h4 className="font-bold text-white text-sm">{lang === 'ar' ? power.labelAr : power.labelEn}</h4>
+                          <p className="text-xs text-slate-400 mt-1">{lang === 'ar' ? power.descAr : power.descEn}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const currentPerms = selectedEmployeeForPowers.permissions || {};
+                            const newPerms = { ...currentPerms, [power.key]: !hasPerm };
+                            await apiService.updateUser(selectedEmployeeForPowers.id, { permissions: newPerms });
+                            setSelectedEmployeeForPowers({ ...selectedEmployeeForPowers, permissions: newPerms });
+                            await refreshData();
+                          }}
+                          className={`p-2 rounded-lg transition ${hasPerm ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+                        >
+                          {hasPerm ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  
+                  <div className="mt-6 pt-4 border-t border-slate-700">
+                    <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-4">{lang === 'ar' ? 'صلاحيات حساسة (ينصح بحصرها للمالك)' : 'Sensitive Powers (Owner exclusive)'}</h4>
+                    {[
+                      { key: 'settings', labelAr: 'إعدادات النظام الأساسية', labelEn: 'Main System Settings', descAr: 'تعديل بيانات المنشأة والفواتير', descEn: 'Modify organization and billing data' },
+                      { key: 'branch_management', labelAr: 'إدارة الفروع', labelEn: 'Branch Management', descAr: 'إضافة أو حذف الفروع', descEn: 'Add or delete branches' },
+                      { key: 'employee_management', labelAr: 'إدارة الموظفين', labelEn: 'Employee Management', descAr: 'إضافة وتعديل وحذف حسابات الموظفين', descEn: 'Add, edit, delete employee accounts' },
+                      { key: 'storefront_link', labelAr: 'الوصول للمتجر الإلكتروني', labelEn: 'Storefront Access', descAr: 'رابط مباشر للمتجر الإلكتروني', descEn: 'Direct access link to online store' },
+                    ].filter(power => power.key !== 'storefront_link' || storeInfo?.is_website_enabled).map(power => {
+                      const hasPerm = selectedEmployeeForPowers.permissions && typeof selectedEmployeeForPowers.permissions[power.key] === 'boolean' 
+                          ? selectedEmployeeForPowers.permissions[power.key] 
+                          : false;
+                      
+                      return (
+                        <div key={power.key} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 mb-3 opacity-80">
+                          <div className="pr-4">
+                            <h4 className="font-bold text-white text-sm">{lang === 'ar' ? power.labelAr : power.labelEn}</h4>
+                            <p className="text-xs text-slate-400 mt-1">{lang === 'ar' ? power.descAr : power.descEn}</p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              const currentPerms = selectedEmployeeForPowers.permissions || {};
+                              const newPerms = { ...currentPerms, [power.key]: !hasPerm };
+                              await apiService.updateUser(selectedEmployeeForPowers.id, { permissions: newPerms });
+                              setSelectedEmployeeForPowers({ ...selectedEmployeeForPowers, permissions: newPerms });
+                              await refreshData();
+                            }}
+                            className={`p-2 rounded-lg transition ${hasPerm ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+                          >
+                            {hasPerm ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
 
@@ -2744,27 +2950,15 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold">{lang === 'ar' ? 'الاسم باللغة العربية:' : 'Arabic Name *'}</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingProduct.nameAr}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, nameAr: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none text-right"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold">{lang === 'ar' ? 'الاسم باللغة الإنجليزية:' : 'English Name *'}</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingProduct.nameEn}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, nameEn: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none text-left"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="font-bold">{lang === 'ar' ? 'اسم المنتج:' : 'Product Name *'}</label>
+                <input
+                  type="text"
+                  required
+                  value={editingProduct.nameAr || editingProduct.nameEn}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, nameAr: e.target.value, nameEn: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-2 font-mono">
@@ -3195,6 +3389,111 @@ export default function App() {
       )}
 
       {/* ========================================================
+          MODAL: CUSTOMER DETAILS & BILLS
+          ======================================================== */}
+      {activeCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm print:bg-white print:p-0">
+          <div className="bg-slate-900 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-800 print:border-none print:shadow-none flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 print:hidden">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Users className="h-5 w-5 text-indigo-400" />
+                {lang === 'ar' ? 'تفاصيل العميل والفواتير' : 'Customer Details & Bills'}
+              </h3>
+              <button onClick={() => setActiveCustomer(null)} className="text-slate-400 hover:text-white transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto print:p-0">
+              {/* Customer Info */}
+              <div className="mb-6 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">{lang === 'ar' ? 'الاسم' : 'Name'}</p>
+                  <p className="font-bold text-white text-lg">{activeCustomer.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">{lang === 'ar' ? 'الهاتف' : 'Phone'}</p>
+                  <p className="font-mono text-slate-300">{activeCustomer.phone}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">{lang === 'ar' ? 'البريد الإلكتروني' : 'Email'}</p>
+                  <p className="text-slate-300">{activeCustomer.email || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">{lang === 'ar' ? 'تاريخ التسجيل' : 'Registration Date'}</p>
+                  <p className="text-slate-300">{new Date(activeCustomer.created_at).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}</p>
+                </div>
+              </div>
+
+              {/* Installment Plans */}
+              {activeCustomer.installment_plans?.length > 0 && (
+                <div className="mb-6 space-y-3">
+                  <h4 className="font-bold text-indigo-400 border-b border-slate-800 pb-2">{lang === 'ar' ? 'خطط التقسيط (BNPL)' : 'Installment Plans (BNPL)'}</h4>
+                  {activeCustomer.installment_plans.map((plan: any) => (
+                    <div key={plan.id} className="bg-slate-800/30 border border-slate-800 rounded-lg p-4">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="font-bold text-white">
+                          {lang === 'ar' ? 'إجمالي الخطة:' : 'Plan Total:'} {Number(plan.total_amount).toFixed(2)} SAR
+                        </span>
+                        <span className={`text-xs px-2 py-1 rounded-full font-bold ${plan.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {plan.status}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {plan.installments.map((inst: any) => (
+                          <div key={inst.id} className="flex justify-between items-center text-sm border-t border-slate-800/50 pt-2">
+                            <span className="text-slate-400">{lang === 'ar' ? 'قسط رقم' : 'Installment'} {inst.installment_number}</span>
+                            <span className="font-mono text-slate-300">{new Date(inst.due_date).toLocaleDateString()}</span>
+                            <span className="font-mono text-slate-300">{Number(inst.amount).toFixed(2)} SAR</span>
+                            <span className={`text-xs font-bold ${inst.status === 'PAID' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {inst.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Invoices */}
+              <div>
+                <h4 className="font-bold text-indigo-400 border-b border-slate-800 pb-2 mb-3">{lang === 'ar' ? 'الفواتير والمشتريات' : 'Invoices & Purchases'}</h4>
+                {activeCustomer.invoices?.length === 0 ? (
+                  <p className="text-slate-500 text-sm">{lang === 'ar' ? 'لا توجد فواتير' : 'No invoices found'}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {activeCustomer.invoices?.map((inv: any) => (
+                      <div key={inv.id} className="flex justify-between items-center p-3 bg-slate-800/30 border border-slate-800 rounded-lg">
+                        <div>
+                          <p className="font-bold text-white text-sm">{inv.invoiceNumber}</p>
+                          <p className="text-xs text-slate-500">{new Date(inv.date).toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US')}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-mono font-bold text-indigo-300">{Number(inv.total).toFixed(2)} SAR</p>
+                          <p className="text-[10px] text-slate-400 uppercase">{inv.fulfillment_mode || 'IN_STORE'} • {inv.paymentMethod}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-slate-800 bg-slate-800/30 print:hidden">
+              <button 
+                onClick={() => setActiveCustomer(null)}
+                className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-lg transition"
+              >
+                {lang === 'ar' ? 'إغلاق' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
           MODAL / POPUP: DETAILED PRINT TAX RECEIPT (ZATCA COMPLIANCE)
           ======================================================== */}
       {activeInvoice && (
@@ -3310,16 +3609,22 @@ export default function App() {
                 <div className="flex justify-between">
                   <span className="font-bold">{lang === 'ar' ? 'طريقة الدفع للمبيعات:' : 'Method of Payment:'}</span>
                   <span>
-                    {activeInvoice.paymentMethod === 'cash' ? (lang === 'ar' ? 'نقدي (كاش)' : 'Cash') : activeInvoice.paymentMethod === 'card' ? (lang === 'ar' ? 'شبكة مدى' : 'mada Card') : (lang === 'ar' ? 'مشترك (نقدي + مدى)' : 'Split')}
+                    {activeInvoice.paymentMethod === 'cash' ? (lang === 'ar' ? 'نقدي (كاش)' : 'Cash') : activeInvoice.paymentMethod === 'card' ? (lang === 'ar' ? 'شبكة مدى' : 'mada Card') : activeInvoice.paymentMethod === 'installments' ? '⏳ BNPL Installments' : activeInvoice.paymentMethod === 'deferred' ? '⏳ Deferred' : (lang === 'ar' ? 'مشترك (نقدي + مدى)' : 'Split')}
                   </span>
                 </div>
-                {activeInvoice.paymentDetails.cashAmount ? (
+                {activeInvoice.fulfillment_mode && activeInvoice.fulfillment_mode !== 'in_store' && (
+                  <div className="flex justify-between font-bold text-indigo-600">
+                    <span>{lang === 'ar' ? 'نوع الطلب:' : 'Order Type:'}</span>
+                    <span className="uppercase">{activeInvoice.fulfillment_mode === 'pickup' ? '📦 Store Pickup' : '🚚 Delivery'}</span>
+                  </div>
+                )}
+                {activeInvoice.paymentDetails && activeInvoice.paymentDetails.cashAmount ? (
                   <div className="flex justify-between">
                     <span>{lang === 'ar' ? 'المبلغ النقدي المسدد:' : 'Cash Paid:'}</span>
                     <span>{activeInvoice.paymentDetails.cashAmount.toFixed(2)} SAR</span>
                   </div>
                 ) : null}
-                {activeInvoice.paymentDetails.cardAmount ? (
+                {activeInvoice.paymentDetails && activeInvoice.paymentDetails.cardAmount ? (
                   <div className="flex justify-between">
                     <span>{lang === 'ar' ? 'المبلغ المسدد بالشبكة:' : 'Card Paid:'}</span>
                     <span>{activeInvoice.paymentDetails.cardAmount.toFixed(2)} SAR</span>

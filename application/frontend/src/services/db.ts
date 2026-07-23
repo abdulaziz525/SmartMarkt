@@ -352,7 +352,7 @@ export const dbService = {
       zatcaQrCode,
       cashierId: currentUser.id,
       cashierName: currentUser.nameAr,
-      store_id: storeId || currentUser.store_id || currentUser.store_ids?.[0],
+      store_id: storeId || currentUser.store_id || currentUser.store_ids?.[0] || '',
     };
 
     invoices.unshift(newInvoice);
@@ -599,7 +599,7 @@ export const dbService = {
       }
 
       if (!barcode || !nameAr || !nameEn) {
-        errors.push(`Line ${i+1}: Barcode, Arabic Name, and English Name are required`);
+        errors.push(`Line ${i+1}: Barcode and Name are required`);
         continue;
       }
 
