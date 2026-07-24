@@ -239,6 +239,13 @@ export default function App() {
     }
   }, [activeInvoice]);
 
+  // Auto-select inventory branch if user is only assigned to one branch
+  useEffect(() => {
+    if (stores.length === 1 && !inventoryViewBranchId) {
+      setInventoryViewBranchId(stores[0].id);
+    }
+  }, [stores, inventoryViewBranchId]);
+
   // Focus barcode input on POS load
   useEffect(() => {
     if (activeTab === 'pos' && barcodeInputRef.current) {
@@ -466,10 +473,14 @@ export default function App() {
       return;
     }
 
-    await apiService.saveProduct(editingProduct);
-    setIsProductModalOpen(false);
-    setEditingProduct(null);
-    await refreshData();
+    try {
+      await apiService.saveProduct(editingProduct);
+      setIsProductModalOpen(false);
+      setEditingProduct(null);
+      await refreshData();
+    } catch (err: any) {
+      alert(err.message || (lang === 'ar' ? 'حدث خطأ أثناء الحفظ' : 'Error saving product'));
+    }
   };
 
   const handleProductDelete = async (id: string) => {
@@ -1593,12 +1604,14 @@ export default function App() {
             ) : (
             <div className="space-y-6">
               <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setInventoryViewBranchId(null)}
-                  className="flex items-center justify-center h-10 w-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
-                >
-                  <ArrowLeft className={`h-5 w-5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
-                </button>
+                {stores.length > 1 && (
+                  <button
+                    onClick={() => setInventoryViewBranchId(null)}
+                    className="flex items-center justify-center h-10 w-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+                  >
+                    <ArrowLeft className={`h-5 w-5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+                  </button>
+                )}
                 <div>
                   <h2 className="text-xl font-bold text-white">
                     {lang === 'ar' ? stores.find(s => s.id === inventoryViewBranchId)?.nameAr : stores.find(s => s.id === inventoryViewBranchId)?.nameEn}
@@ -1648,20 +1661,24 @@ export default function App() {
 
                 {/* Import / Export / Add Buttons */}
                 <div className="flex flex-wrap gap-2">
-                  <input
-                    type="file"
-                    accept=".csv"
-                    ref={fileInputRef}
-                    onChange={handleCsvImport}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-xs rounded-lg px-3 py-2 font-bold transition"
-                  >
-                    <Upload className="h-4 w-4" />
-                    <span>{lang === 'ar' ? 'استيراد CSV' : 'Import CSV'}</span>
-                  </button>
+                  {hasPerm('inventory_management', ['owner']) && (
+                    <>
+                      <input
+                        type="file"
+                        accept=".csv"
+                        ref={fileInputRef}
+                        onChange={handleCsvImport}
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-xs rounded-lg px-3 py-2 font-bold transition"
+                      >
+                        <Upload className="h-4 w-4" />
+                        <span>{lang === 'ar' ? 'استيراد CSV' : 'Import CSV'}</span>
+                      </button>
+                    </>
+                  )}
 
                   <button
                     onClick={handleCsvExport}
@@ -1671,29 +1688,31 @@ export default function App() {
                     <span>{lang === 'ar' ? 'تصدير CSV' : 'Export CSV'}</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setEditingProduct({
-                        id: `prod-${Date.now()}`,
-                        barcode: '',
-                        nameAr: '',
-                        nameEn: '',
-                        category: uniqueCategories[1] || 'تموينات (Pantry)',
-                        costPrice: 0,
-                        sellingPrice: 0,
-                        quantity: 0,
-                        unit: 'pcs',
-                        lowStockThreshold: 5,
-                        isPerishable: false,
-                        supplierId: '',
-                      });
-                      setIsProductModalOpen(true);
-                    }}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-xs rounded-lg px-4 py-2 font-bold transition shadow"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>{lang === 'ar' ? 'إضافة منتج جديد' : 'New Product'}</span>
-                  </button>
+                  {hasPerm('inventory_management', ['owner']) && (
+                    <button
+                      onClick={() => {
+                        setEditingProduct({
+                          id: `prod-${Date.now()}`,
+                          barcode: '',
+                          nameAr: '',
+                          nameEn: '',
+                          category: uniqueCategories[1] || 'تموينات (Pantry)',
+                          costPrice: 0,
+                          sellingPrice: 0,
+                          quantity: 0,
+                          unit: 'pcs',
+                          lowStockThreshold: 5,
+                          isPerishable: false,
+                          supplierId: '',
+                        });
+                        setIsProductModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-xs rounded-lg px-4 py-2 font-bold transition shadow"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>{lang === 'ar' ? 'إضافة منتج جديد' : 'New Product'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1802,21 +1821,28 @@ export default function App() {
                               </td>
                               <td className="p-4 text-center">
                                 <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={() => {
-                                      setEditingProduct({ ...p });
-                                      setIsProductModalOpen(true);
-                                    }}
-                                    className="h-8 w-8 text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 rounded-lg flex items-center justify-center transition"
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleProductDelete(p.id)}
-                                    className="h-8 w-8 text-rose-400 hover:text-rose-300 bg-rose-500/10 rounded-lg flex items-center justify-center transition"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
+                                  {hasPerm('inventory_management', ['owner']) && (
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setEditingProduct({ ...p });
+                                          setIsProductModalOpen(true);
+                                        }}
+                                        className="h-8 w-8 text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 rounded-lg flex items-center justify-center transition"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleProductDelete(p.id)}
+                                        className="h-8 w-8 text-rose-400 hover:text-rose-300 bg-rose-500/10 rounded-lg flex items-center justify-center transition"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                  {!hasPerm('inventory_management', ['owner']) && (
+                                    <span className="text-xs text-slate-500">-</span>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -2738,7 +2764,7 @@ export default function App() {
                 <div className="p-5 overflow-y-auto flex-1 space-y-4">
                   {[
                     { key: 'dashboard', labelAr: 'لوحة التحكم والإحصائيات', labelEn: 'Dashboard & Statistics', descAr: 'عرض المبيعات والأرباح والتنبيهات', descEn: 'View sales, profits, and alerts' },
-                    { key: 'inventory', labelAr: 'إدارة المخزون', labelEn: 'Inventory Management', descAr: 'إضافة وتعديل وحذف المنتجات والكميات', descEn: 'Add, edit, delete products and quantities' },
+                    { key: 'inventory', labelAr: 'عرض المخزون', labelEn: 'Inventory Display', descAr: 'تصفح وعرض المنتجات دون تعديل', descEn: 'Browse and view products without editing' },
                     { key: 'suppliers', labelAr: 'الموردون وأوامر الشراء', labelEn: 'Suppliers & POs', descAr: 'إدارة الموردين والمدفوعات واستلام الشحنات', descEn: 'Manage suppliers, payments, and shipments' },
                     { key: 'reports', labelAr: 'التقارير والمحاسبة', labelEn: 'Reports & Accounting', descAr: 'عرض التقارير المالية وسجل المبيعات اليومي', descEn: 'View financial reports and daily sales' },
                     { key: 'advanced_pos', labelAr: 'نقطة بيع متقدمة', labelEn: 'Advanced POS', descAr: 'تعديل الأسعار يدوياً وتطبيق الخصومات', descEn: 'Manually adjust prices and apply discounts' },
@@ -2777,6 +2803,7 @@ export default function App() {
                       { key: 'settings', labelAr: 'إعدادات النظام الأساسية', labelEn: 'Main System Settings', descAr: 'تعديل بيانات المنشأة والفواتير', descEn: 'Modify organization and billing data' },
                       { key: 'branch_management', labelAr: 'إدارة الفروع', labelEn: 'Branch Management', descAr: 'إضافة أو حذف الفروع', descEn: 'Add or delete branches' },
                       { key: 'employee_management', labelAr: 'إدارة الموظفين', labelEn: 'Employee Management', descAr: 'إضافة وتعديل وحذف حسابات الموظفين', descEn: 'Add, edit, delete employee accounts' },
+                      { key: 'inventory_management', labelAr: 'إدارة المخزون (تعديل)', labelEn: 'Inventory Management', descAr: 'إضافة وتعديل وحذف المنتجات والكميات', descEn: 'Add, edit, delete products and quantities' },
                       { key: 'storefront_link', labelAr: 'الوصول للمتجر الإلكتروني', labelEn: 'Storefront Access', descAr: 'رابط مباشر للمتجر الإلكتروني', descEn: 'Direct access link to online store' },
                     ].filter(power => power.key !== 'storefront_link' || storeInfo?.is_website_enabled).map(power => {
                       const hasPerm = selectedEmployeeForPowers.permissions && typeof selectedEmployeeForPowers.permissions[power.key] === 'boolean' 

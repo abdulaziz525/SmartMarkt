@@ -32,8 +32,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setError('');
     setIsLoading(true);
     try {
-      await apiService.login(loginIdentifier, loginPassword);
-      await apiService.logAudit('LOGIN', `User ${loginIdentifier} logged in to the system.`);
+      const user = await apiService.login(loginIdentifier, loginPassword);
+      // Immediately set the active store ID so subsequent data fetches have the right context
+      if (user.store_id) {
+        localStorage.setItem('activeStoreId', user.store_id);
+      } else {
+        localStorage.removeItem('activeStoreId');
+      }
+      await apiService.logAudit('LOGIN', `User ${loginIdentifier} logged in to the system.`, user.store_id || undefined);
       onLogin();
     } catch (err: any) {
       setError(err.message || ar.defaultError);

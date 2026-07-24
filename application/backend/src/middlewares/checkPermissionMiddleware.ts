@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { db } from '../config/db.js';
 
-export const checkPermissionMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const checkPermissionMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   const user = req.user;
   if (!user || !user.role) {
     return res.status(403).json({ error: 'Forbidden: Role not found' });
@@ -29,15 +30,29 @@ export const checkPermissionMiddleware = (req: Request, res: Response, next: Nex
   }
 
   if (role === 'manager') {
-    // Manager can access most things except stores, users, and modifying store settings
-    const isRestricted = path.startsWith('/api/users') || 
-                         path.startsWith('/api/stores') || 
-                         (path.startsWith('/api/store-info') && method !== 'GET');
-    
-    if (isRestricted) {
-      return res.status(403).json({ error: 'Forbidden: Branch Managers cannot access this resource' });
+    try {
+      const dbUser = await db('users').where({ id: user.id }).first();
+      const permissions = dbUser?.permissions ? JSON.parse(dbUser.permissions) : {};
+
+      let isRestricted = false;
+      
+      if (path.startsWith('/api/users') && !permissions['employee_management']) {
+        isRestricted = true;
+      }
+      if (path.startsWith('/api/stores') && method !== 'GET' && !permissions['branch_management']) {
+        isRestricted = true;
+      }
+      if (path.startsWith('/api/store-info') && method !== 'GET' && !permissions['settings']) {
+        isRestricted = true;
+      }
+      
+      if (isRestricted) {
+        return res.status(403).json({ error: 'Forbidden: Branch Managers lack required permissions for this action' });
+      }
+      return next();
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
-    return next();
   }
 
   return res.status(403).json({ error: 'Forbidden: Unknown role' });

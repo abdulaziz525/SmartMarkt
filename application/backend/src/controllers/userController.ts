@@ -9,11 +9,12 @@ router.get('/users', async (req, res) => {
   try {
     const users = await db('users')
       .where({ organization_id: req.user.organization_id })
-      .select('id', 'username', 'nameAr', 'nameEn', 'role', 'active', 'organization_id', 'store_id', 'store_ids');
+      .select('id', 'username', 'nameAr', 'nameEn', 'role', 'active', 'organization_id', 'store_id', 'store_ids', 'permissions');
     const sanitized = users.map(u => ({
       ...u,
       active: !!u.active,
       store_ids: u.store_ids ? JSON.parse(u.store_ids) : (u.store_id ? [u.store_id] : []),
+      permissions: u.permissions ? JSON.parse(u.permissions) : null,
     }));
     res.json(sanitized);
   } catch (err: any) {
@@ -81,7 +82,7 @@ router.put('/users/:id', async (req, res) => {
   }
   try {
     const { id } = req.params;
-    const { fullName, role, store_ids, active, password } = req.body;
+    const { fullName, role, store_ids, active, password, permissions } = req.body;
 
     // Verify target user belongs to same org
     const target = await db('users')
@@ -94,16 +95,22 @@ router.put('/users/:id', async (req, res) => {
       return res.status(403).json({ error: 'Cannot modify the owner account' });
     }
 
-    const assignedStoreIds: string[] = Array.isArray(store_ids) ? store_ids : [];
-    const primaryStoreId = assignedStoreIds[0] || null;
-
     const updatePayload: any = {
       nameAr: fullName || target.nameAr,
       nameEn: fullName || target.nameEn,
       role: role || target.role,
-      store_id: primaryStoreId,
-      store_ids: JSON.stringify(assignedStoreIds),
     };
+    
+    if (store_ids !== undefined) {
+      const assignedStoreIds: string[] = Array.isArray(store_ids) ? store_ids : [];
+      updatePayload.store_ids = JSON.stringify(assignedStoreIds);
+      updatePayload.store_id = assignedStoreIds[0] || null;
+    }
+    
+    if (permissions !== undefined) {
+      updatePayload.permissions = JSON.stringify(permissions);
+    }
+    
     if (typeof active === 'boolean') updatePayload.active = active;
     if (password) updatePayload.password = await bcrypt.hash(password, 10);
 

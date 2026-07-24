@@ -203,7 +203,7 @@ router.post('/auth/logout', (req, res) => {
   res.status(200).json({ message: 'Logged out successfully' });
 });
 
-router.get('/auth/verify', (req, res) => {
+router.get('/auth/verify', async (req, res) => {
   const token = req.cookies?.token;
 
   if (!token) {
@@ -211,7 +211,11 @@ router.get('/auth/verify', (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const dbUser = await db('users').where({ id: decoded.id }).first();
+    if (dbUser) {
+       decoded.permissions = dbUser.permissions ? JSON.parse(dbUser.permissions) : null;
+    }
     res.json(decoded);
   } catch (error) {
     res.status(401).json({ error: 'Invalid token' });

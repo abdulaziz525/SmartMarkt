@@ -84,6 +84,7 @@ export async function runMigrations() {
       table.string('organization_id').notNullable().references('id').inTable('organizations').onDelete('CASCADE');
       table.string('store_id').nullable().references('id').inTable('stores').onDelete('SET NULL');
       table.text('store_ids').nullable(); // JSON array of store IDs for multi-branch managers
+      table.text('permissions').nullable(); // JSON object of permissions
     });
   }
 
@@ -107,6 +108,13 @@ export async function runMigrations() {
     console.log('Adding store_ids column to existing users table (for multi-branch managers)...');
     await db.schema.alterTable('users', (table) => {
       table.text('store_ids').nullable(); // JSON array of store IDs
+    });
+  }
+  const hasPermissionsCol = await db.schema.hasColumn('users', 'permissions');
+  if (!hasPermissionsCol) {
+    console.log('Adding permissions column to existing users table...');
+    await db.schema.alterTable('users', (table) => {
+      table.text('permissions').nullable(); // JSON object of permissions
     });
   }
 
