@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Building2, MapPin, Globe, Edit3, Trash2, X } from 'lucide-react';
+import { Plus, Building2, MapPin, Edit3, Trash2, X } from 'lucide-react';
 import type { Branch, UserRole } from '../types';
 import { apiService } from '../services/api';
 

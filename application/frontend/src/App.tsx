@@ -37,6 +37,7 @@ import {
   Store,
 } from 'lucide-react';
 import QRCode from 'qrcode';
+// @ts-ignore: ResponsiveGridLayout exists at runtime in newer versions of react-grid-layout
 import { apiService } from './services/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { useStore } from './context/StoreContext';
@@ -108,6 +109,7 @@ export default function App() {
   // Suppliers & PO State
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState<boolean>(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [activeSupplierForPayment, setActiveSupplierForPayment] = useState<Supplier | null>(null);
   const [isPoModalOpen, setIsPoModalOpen] = useState<boolean>(false);
   const [selectedPoSupplier, setSelectedPoSupplier] = useState<string>('');
   const [poItems, setPoItems] = useState<{ product: Product; costPrice: number; quantity: number }[]>([]);
@@ -118,6 +120,8 @@ export default function App() {
 
   // Reports State
   const [reportRange, setReportRange] = useState<'today' | '7days' | 'month'>('7days');
+  const [reportTab, setReportTab] = useState<'sales' | 'purchases'>('sales');
+
 
   // QR Code URL for active receipt
   const [receiptQrUrl, setReceiptQrUrl] = useState<string>('');
@@ -503,7 +507,7 @@ export default function App() {
       const text = event.target?.result as string;
       const { products: parsedProducts, errors } = apiService.parseCSV(text);
       if (errors.length > 0) {
-        alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \n' : 'Imported with errors: \n') + errors.slice(0, 5).join('\n'));
+        alert((lang === 'ar' ? 'تم استيراد بعض المنتجات مع وجود أخطاء: \\n' : 'Imported with errors: \\n') + errors.slice(0, 5).join('\\n'));
       }
       if (parsedProducts.length > 0) {
         const result = await apiService.importProductsFromCSV(parsedProducts);
@@ -556,11 +560,7 @@ export default function App() {
     }
   };
 
-  const handleSupplierPayoff = async (id: string, amount: number) => {
-    if (amount <= 0) return;
-    await apiService.paySupplier(id, amount);
-    await refreshData();
-  };
+
 
   const addToPoCart = (product: Product) => {
     const existing = poItems.find(item => item.product.id === product.id);
@@ -613,6 +613,31 @@ export default function App() {
   const handlePoReceive = async (poId: string) => {
     await apiService.receivePurchaseOrder(poId);
     await refreshData();
+  };
+
+  const handlePoPayment = async (po: PurchaseOrder) => {
+    const remaining = po.total - (po.paidAmount || 0);
+    if (remaining <= 0) {
+      alert(lang === 'ar' ? 'هذه الفاتورة مدفوعة بالكامل' : 'This PO is fully paid');
+      return;
+    }
+    const input = prompt(lang === 'ar' ? `المتبقي: ${remaining} SAR\nأدخل المبلغ المراد سداده:` : `Remaining: ${remaining} SAR\nEnter payment amount:`, remaining.toString());
+    if (!input) return;
+    const amount = parseFloat(input);
+    if (isNaN(amount) || amount <= 0) {
+      alert(lang === 'ar' ? 'مبلغ غير صالح' : 'Invalid amount');
+      return;
+    }
+    if (amount > remaining) {
+      alert(lang === 'ar' ? 'المبلغ يتجاوز المتبقي من الفاتورة' : 'Amount exceeds remaining balance');
+      return;
+    }
+    try {
+      await apiService.payPurchaseOrder(po.id, amount);
+      await refreshData();
+    } catch (err: any) {
+      alert(err.message || 'Error paying PO');
+    }
   };
 
   const handleScannerReceive = async () => {
@@ -1048,15 +1073,29 @@ export default function App() {
         {/* Dynamic Inner Workspace Page */}
         <main className="flex-1 bg-slate-950 overflow-y-auto p-6 md:p-8">
           
+                    
+                    
+                    
           {/* ========================================================
               TAB: DASHBOARD
               ======================================================== */}
           {activeTab === 'dashboard' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center mb-4 bg-slate-900 p-4 rounded-xl border border-slate-800">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <LayoutDashboard className="h-5 w-5 text-indigo-400" />
+                  {lang === 'ar' ? 'لوحة القيادة التفاعلية' : 'Dynamic Dashboard'}
+                </h2>
+              </div>
+
+              
+
+              <div className="space-y-6 w-full">
 
               {/* Branch Alerts Table */}
-              {allBranchesAlerts.length > 0 && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              {allBranchesAlerts.length > 0 ? (
+                <div key="alerts" className="w-full h-full">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col">
                   <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-slate-400" />
                     <h3 className="font-bold text-slate-200 text-sm">
@@ -1101,12 +1140,15 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  </div>
                 </div>
-              )}
+              ) : <div key="alerts" style={{display: 'none'}}></div>}
 
               {/* Numerical Metrics Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group">
+              {/* No grid wrapper needed */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+                  <div key="metric1" className="w-full h-full">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
                   <div className="absolute right-0 top-0 h-24 w-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition"></div>
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'مبيعات اليوم المحققة' : 'Today\'s Total Sales'}
@@ -1119,8 +1161,12 @@ export default function App() {
                     <span>+12% {lang === 'ar' ? 'منذ الأمس' : 'vs yesterday'}</span>
                   </div>
                 </div>
+                </div>
 
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group">
+
+
+                <div key="metric2" className="w-full h-full">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
                   <div className="absolute right-0 top-0 h-24 w-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition"></div>
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'عدد فواتير المبيعات' : 'Sales Invoice Count'}
@@ -1132,8 +1178,12 @@ export default function App() {
                     {lang === 'ar' ? 'متوسط الفاتورة:' : 'Avg basket:'} {(filteredInvoices.reduce((a, c) => a + c.total, 0) / (filteredInvoices.length || 1)).toFixed(1)} {getTrans('currency')}
                   </div>
                 </div>
+                </div>
 
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group">
+
+
+                <div key="metric3" className="w-full h-full">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
                   <div className="absolute right-0 top-0 h-24 w-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition"></div>
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'ضريبة القيمة المضافة المحصلة' : 'Total VAT Collected (15%)'}
@@ -1145,8 +1195,12 @@ export default function App() {
                     {lang === 'ar' ? 'جاهزة للإقرار الضريبي' : 'ZATCA Compliance active'}
                   </div>
                 </div>
+                </div>
 
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group">
+
+
+                <div key="metric4" className="w-full h-full">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
                   <div className="absolute right-0 top-0 h-24 w-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition"></div>
                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
                     {lang === 'ar' ? 'إجمالي الأرباح الصافية (تقديري)' : 'Estimated Net Profit'}
@@ -1157,13 +1211,15 @@ export default function App() {
                   <div className="mt-1 text-xs text-slate-500">
                     {lang === 'ar' ? 'بعد استقطاع التكاليف والضرائب' : 'After COGS and VAT deduction'}
                   </div>
+                  </div>
                 </div>
-              </div>
+                </div>
 
               {/* Graphics & Details Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
                 {/* 7-Day Sales History Chart (SVG-based) */}
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm lg:col-span-2 space-y-4">
+                <div key="chart" className="w-full h-full lg:col-span-2">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full flex flex-col">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-white">
                       {lang === 'ar' ? 'أداء المبيعات والأرباح (آخر 7 أيام)' : 'Sales & Profits (Last 7 Days)'}
@@ -1181,7 +1237,7 @@ export default function App() {
                   </div>
 
                   {/* SVG Chart */}
-                  <div className="h-64 w-full flex items-end justify-between gap-4 pt-6 px-2 border-b border-slate-800">
+                  <div className="flex-1 w-full flex items-end justify-between gap-4 pt-6 px-2 border-b border-slate-800">
                     {salesHistory.map((item, idx) => {
                       const salesHeight = (item.sales / maxSalesVal) * 80; // max 80% height
                       const profitHeight = (item.profit / maxSalesVal) * 80;
@@ -1213,10 +1269,12 @@ export default function App() {
                       );
                     })}
                   </div>
+                  </div>
                 </div>
 
                 {/* Best Selling Products */}
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
+                <div key="bestsellers" className="w-full h-full lg:col-span-1">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full overflow-hidden flex flex-col">
                   <h3 className="text-lg font-bold text-white">
                     {lang === 'ar' ? 'المنتجات الأكثر مبيعاً' : 'Best Selling Products'}
                   </h3>
@@ -1246,12 +1304,14 @@ export default function App() {
                       })
                     )}
                   </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Branch Performance */}
-              {hasAccess(['owner', 'manager']) && branchMetrics.length > 0 && (
-                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 lg:col-span-3 mt-6">
+                {/* Branch Performance */}
+              {hasAccess(['owner', 'manager']) && branchMetrics.length > 0 ? (
+                <div key="branch" className="w-full h-full">
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full flex flex-col">
                   <h3 className="text-lg font-bold text-white">
                     {lang === 'ar' ? 'أداء الفروع' : 'Branch Performance'}
                   </h3>
@@ -1277,11 +1337,14 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  </div>
                 </div>
-              )}
+              ) : <div key="branch" style={{display: 'none'}}></div>}
+              </div>
             </div>
           )}
 
+          
           {/* ========================================================
               TAB: POS SALES SCREEN
               ======================================================== */}
@@ -1917,25 +1980,27 @@ export default function App() {
                   <table className="w-full text-right border-collapse">
                     <thead>
                       <tr className="bg-slate-950 text-slate-400 text-xs font-bold border-b border-slate-800">
-                        <th className="p-3 font-mono">PO Number</th>
-                        <th className="p-3">{lang === 'ar' ? 'التاريخ' : 'Date'}</th>
+                        <th className="p-3 font-mono">ID</th>
                         <th className="p-3">{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
                         <th className="p-3 font-mono">{lang === 'ar' ? 'الإجمالي' : 'Total'}</th>
-                        <th className="p-3">{lang === 'ar' ? 'حالة الاستلام' : 'Status'}</th>
-                        <th className="p-3 text-center">{lang === 'ar' ? 'إجراءات' : 'Actions'}</th>
+                        <th className="p-3 font-mono">{lang === 'ar' ? 'المدفوع' : 'Paid'}</th>
+                        <th className="p-3 font-mono">{lang === 'ar' ? 'المتبقي' : 'Remaining'}</th>
+                        <th className="p-3">{lang === 'ar' ? 'حالة الاستلام' : 'Receipt status'}</th>
+                        <th className="p-3">{lang === 'ar' ? 'المستلم' : 'Recipient'}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800 text-sm">
                       {purchaseOrders.map((po, idx) => (
                         <tr key={idx} className="hover:bg-slate-900/60 transition">
                           <td className="p-3 font-mono text-xs text-indigo-400 font-bold">{po.poNumber}</td>
-                          <td className="p-3 font-mono text-xs text-slate-400">{new Date(po.date).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}</td>
                           <td className="p-3 font-bold text-slate-200">
                             {lang === 'ar' 
                               ? branches.find(b => b.id === po.store_id)?.nameAr || '-' 
                               : branches.find(b => b.id === po.store_id)?.nameEn || '-'}
                           </td>
                           <td className="p-3 font-mono font-bold text-slate-300">{po.total.toFixed(2)} SAR</td>
+                          <td className="p-3 font-mono font-bold text-emerald-400">{(po.paidAmount || 0).toFixed(2)} SAR</td>
+                          <td className="p-3 font-mono font-bold text-amber-400">{(po.total - (po.paidAmount || 0)).toFixed(2)} SAR</td>
                           <td className="p-3">
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                               po.status === 'received' 
@@ -1943,36 +2008,20 @@ export default function App() {
                                 : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                             }`}>
                               {po.status === 'received' 
-                                ? (lang === 'ar' ? 'تم الاستلام وتحديث المخزن' : 'Received') 
-                                : (lang === 'ar' ? 'قيد الانتظار' : 'Pending Receipt')}
+                                ? (lang === 'ar' ? 'تم الاستلام' : 'Received') 
+                                : (lang === 'ar' ? 'قيد الانتظار' : 'Pending')}
                             </span>
+                            {po.status === 'pending' && currentUser?.role !== 'cashier' && (
+                              <button
+                                onClick={() => handlePoReceive(po.id)}
+                                className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded px-2 py-0.5 transition ml-2"
+                              >
+                                {lang === 'ar' ? 'تأكيد الاستلام' : 'Receive'}
+                              </button>
+                            )}
                           </td>
-                          <td className="p-3 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {po.status === 'pending' ? (
-                                currentUser?.role === 'cashier' ? (
-                                  <span className="text-xs text-slate-500 italic">{lang === 'ar' ? 'امسح الباركود للتأكيد' : 'Scan to Receive'}</span>
-                                ) : (
-                                  <button
-                                    onClick={() => handlePoReceive(po.id)}
-                                    className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded px-3 py-1 transition"
-                                  >
-                                    {lang === 'ar' ? 'تأكيد الاستلام' : 'Receive PO'}
-                                  </button>
-                                )
-                              ) : (
-                                <span className="text-xs text-slate-500 font-mono">{po.receivedDate ? new Date(po.receivedDate).toLocaleDateString(lang==='ar'?'ar-SA':'en-US') : ''}</span>
-                              )}
-                              {currentUser?.role !== 'cashier' && (
-                                <button
-                                  onClick={() => setActivePoReceipt(po)}
-                                  className="h-7 w-7 text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 rounded-lg flex items-center justify-center transition"
-                                  title={lang === 'ar' ? 'عرض الفاتورة' : 'View PO Receipt'}
-                                >
-                                  <FileText className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
+                          <td className="p-3 font-bold text-slate-200 text-sm">
+                            {po.status === 'received' ? (po.receivedBy || (lang === 'ar' ? 'غير مسجل' : 'Not Recorded')) : '-'}
                           </td>
                         </tr>
                       ))}
@@ -1985,8 +2034,8 @@ export default function App() {
               <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'قائمة الموردين المعتمدين' : 'Registered Suppliers'}</h3>
-                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة حسابات الدفع للشركات الموردة للمخازن' : 'Manage supply lines and balances payable'}</p>
+                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'قائمة مستحقات الموردين' : 'Supplier Payables'}</h3>
+                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة حسابات الدفع الآجلة للشركات الموردة للمخازن' : 'Manage supplier futures list and balances payable'}</p>
                   </div>
                   {currentUser?.role !== 'cashier' && (
                     <button
@@ -2022,13 +2071,10 @@ export default function App() {
                         <div className="flex gap-1.5">
                           {s.balance > 0 && (
                             <button
-                              onClick={() => {
-                                const payAmt = prompt(lang === 'ar' ? 'أدخل المبلغ المسدد للمورد:' : 'Enter payment amount:', s.balance.toString());
-                                if (payAmt) handleSupplierPayoff(s.id, parseFloat(payAmt) || 0);
-                              }}
+                              onClick={() => setActiveSupplierForPayment(s)}
                               className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded px-2.5 py-1 font-bold transition"
                             >
-                              {lang === 'ar' ? 'تسديد حساب' : 'Settle'}
+                              {lang === 'ar' ? 'سداد الفواتير' : 'Pay Invoices'}
                             </button>
                           )}
                           {currentUser?.role !== 'cashier' && (
@@ -2087,6 +2133,24 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Reports Tabs */}
+              <div className="flex gap-4 border-b border-slate-800 pb-2">
+                <button
+                  onClick={() => setReportTab('sales')}
+                  className={`text-sm font-bold pb-2 transition ${reportTab === 'sales' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  {lang === 'ar' ? 'تقارير المبيعات' : 'Sales Reports'}
+                </button>
+                <button
+                  onClick={() => setReportTab('purchases')}
+                  className={`text-sm font-bold pb-2 transition ${reportTab === 'purchases' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  {lang === 'ar' ? 'تقارير المشتريات' : 'Purchase Reports'}
+                </button>
+              </div>
+
+              {reportTab === 'sales' && (
+                <>
               {/* Financial Box Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
                 <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 text-right">
@@ -2173,6 +2237,59 @@ export default function App() {
                   </table>
                 </div>
               </div>
+                </>
+              )}
+
+              {reportTab === 'purchases' && (
+                <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-white">{lang === 'ar' ? 'فواتير المشتريات (أوامر التوريد المستلمة)' : 'Purchase Invoices (Received POs)'}</h4>
+                    <div className="text-xs text-slate-400 font-mono">{purchaseOrders.filter(po => po.status === 'received').length} {lang==='ar'?'فاتورة مشتريات':'purchase invoices'}</div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right border-collapse">
+                      <thead>
+                        <tr className="bg-slate-950 text-slate-400 text-xs font-bold border-b border-slate-800">
+                          <th className="p-3 font-mono">Invoice No.</th>
+                          <th className="p-3">{lang === 'ar' ? 'التاريخ' : 'Date'}</th>
+                          <th className="p-3">{lang === 'ar' ? 'المورد' : 'Supplier'}</th>
+                          <th className="p-3 font-mono">{lang === 'ar' ? 'الإجمالي' : 'Total'}</th>
+                          <th className="p-3 font-mono">{lang === 'ar' ? 'المدفوع' : 'Paid'}</th>
+                          <th className="p-3 font-mono">{lang === 'ar' ? 'المتبقي' : 'Remaining'}</th>
+                          <th className="p-3 text-center">{lang === 'ar' ? 'الفاتورة' : 'View'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-sm">
+                        {purchaseOrders
+                          .filter(po => po.status === 'received')
+                          .map((po, idx) => (
+                          <tr key={idx} className="hover:bg-slate-900/60 transition">
+                            <td className="p-3 font-mono text-xs text-indigo-400 font-bold">{po.poNumber}</td>
+                            <td className="p-3 font-mono text-xs text-slate-400">
+                              {new Date(po.receivedDate || po.date).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}
+                            </td>
+                            <td className="p-3 font-bold text-slate-200">
+                              {suppliers.find(s => s.id === po.supplierId)?.name || '-'}
+                            </td>
+                            <td className="p-3 font-mono text-slate-300">{po.total.toFixed(2)} SAR</td>
+                            <td className="p-3 font-mono text-emerald-400">{(po.paidAmount || 0).toFixed(2)} SAR</td>
+                            <td className="p-3 font-mono text-amber-400 font-bold">{(po.total - (po.paidAmount || 0)).toFixed(2)} SAR</td>
+                            <td className="p-3 text-center">
+                              <button
+                                onClick={() => setActivePoReceipt(po)}
+                                className="text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded transition"
+                              >
+                                {lang === 'ar' ? 'عرض الفاتورة' : 'Receipt'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -3091,6 +3208,65 @@ export default function App() {
       )}
 
       {/* ========================================================
+          MODAL: SUPPLIER INVOICE PAYMENTS
+          ======================================================== */}
+      {activeSupplierForPayment && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 rounded-2xl border border-slate-800 max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-indigo-400" />
+                  {lang === 'ar' ? 'سداد فواتير المورد' : 'Pay Supplier Invoices'}
+                </h3>
+                <p className="text-sm font-bold text-slate-400 mt-1">{activeSupplierForPayment.name}</p>
+              </div>
+              <button onClick={() => setActiveSupplierForPayment(null)} className="text-slate-400 hover:text-white transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto">
+              {purchaseOrders.filter(po => po.supplierId === activeSupplierForPayment.id && po.total - (po.paidAmount || 0) > 0).length === 0 ? (
+                <div className="text-center text-slate-500 py-8">
+                  {lang === 'ar' ? 'لا توجد فواتير مستحقة الدفع لهذا المورد' : 'No pending invoices for this supplier'}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {purchaseOrders
+                    .filter(po => po.supplierId === activeSupplierForPayment.id && po.total - (po.paidAmount || 0) > 0)
+                    .map((po, idx) => {
+                      const remaining = po.total - (po.paidAmount || 0);
+                      return (
+                        <div key={idx} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-bold text-indigo-400 font-mono mb-1">{po.poNumber}</div>
+                            <div className="text-xs text-slate-400 mb-2">
+                              {lang === 'ar' ? 'المستلم:' : 'Recipient:'} {po.status === 'received' ? (po.receivedBy || (lang === 'ar' ? 'غير مسجل' : 'Not Recorded')) : (lang === 'ar' ? 'لم يتم الاستلام بعد' : 'Not received yet')}
+                            </div>
+                            <div className="flex gap-4 text-xs font-mono">
+                              <div className="text-slate-300">{lang === 'ar' ? 'الإجمالي:' : 'Total:'} {po.total.toFixed(2)}</div>
+                              <div className="text-emerald-400">{lang === 'ar' ? 'المدفوع:' : 'Paid:'} {(po.paidAmount || 0).toFixed(2)}</div>
+                              <div className="text-amber-400 font-bold">{lang === 'ar' ? 'المتبقي:' : 'Remaining:'} {remaining.toFixed(2)}</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handlePoPayment(po)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-lg text-sm transition shadow-lg shadow-emerald-900/20"
+                          >
+                            {lang === 'ar' ? 'تسديد' : 'Pay'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
           MODAL: SUPPLIER DETAILS ADD / EDIT
           ======================================================== */}
       {isSupplierModalOpen && (
@@ -3401,6 +3577,34 @@ export default function App() {
               <span className="font-bold text-sm">{lang === 'ar' ? 'الإجمالي الكلي:' : 'Grand Total:'}</span>
               <span className="font-mono font-black text-lg">{activePoReceipt.total.toFixed(2)} SAR</span>
             </div>
+            
+            <div className="border-t border-dashed border-slate-300 mt-3 pt-3 space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-bold text-emerald-600">{lang === 'ar' ? 'المدفوع:' : 'Paid:'}</span>
+                <span className="font-mono font-bold text-emerald-600">{(activePoReceipt.paidAmount || 0).toFixed(2)} SAR</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-bold text-amber-600">{lang === 'ar' ? 'المتبقي:' : 'Remaining:'}</span>
+                <span className="font-mono font-bold text-amber-600">{(activePoReceipt.total - (activePoReceipt.paidAmount || 0)).toFixed(2)} SAR</span>
+              </div>
+            </div>
+
+            {activePoReceipt.payments && activePoReceipt.payments.length > 0 && (
+              <div className="mt-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-xs mb-2 text-slate-700">{lang === 'ar' ? 'سجل المدفوعات' : 'Payment History'}</h4>
+                <div className="space-y-2">
+                  {activePoReceipt.payments.map((p, i) => (
+                    <div key={i} className="flex justify-between items-center text-xs border-b border-slate-200 pb-1 last:border-0 last:pb-0">
+                      <div>
+                        <div className="font-bold text-slate-800">{new Date(p.date).toLocaleDateString(lang==='ar'?'ar-SA':'en-US')}</div>
+                        <div className="text-[10px] text-slate-500">{lang === 'ar' ? 'بواسطة:' : 'By:'} {p.cashierName}</div>
+                      </div>
+                      <div className="font-mono font-bold text-emerald-600">{p.amount.toFixed(2)} SAR</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mt-8 text-center print:hidden flex flex-col gap-3">
               <button 

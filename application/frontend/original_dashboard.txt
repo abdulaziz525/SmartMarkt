@@ -1,0 +1,329 @@
+Created At: 2026-07-29T12:09:21+03:00
+Completed At: 2026-07-29T12:09:21+03:00
+File Path: `file:///Users/abdulaziz/Library/Mobile%20Documents/com~apple~CloudDocs/00_Projects/WMP/SmartMarkt/application/frontend/src/App.tsx`
+Total Lines: 3982
+Total Bytes: 226039
+Showing lines 1130 to 1450
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1130:           
+1131:           {/* ========================================================
+1132:               TAB: DASHBOARD
+1133:               ======================================================== */}
+1134:           {activeTab === 'dashboard' && (
+1135:             <div className="space-y-4">
+1136:               <div className="flex justify-between items-center mb-4 bg-slate-900 p-4 rounded-xl border border-slate-800">
+1137:                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
+1138:                   <LayoutDashboard className="h-5 w-5 text-indigo-400" />
+1139:                   {lang === 'ar' ? 'لوحة القيادة التفاعلية' : 'Dynamic Dashboard'}
+1140:                 </h2>
+1141:                 <div className="flex gap-2">
+1142:                   <button
+1143:                     onClick={() => {
+1144:                       if(confirm(lang === 'ar' ? 'هل أنت متأكد من إعادة ضبط التخطيط؟' : 'Reset layout to default?')) {
+1145:                         setDashboardLayouts(defaultDashboardLayouts);
+1146:                         localStorage.setItem('smartmarkt_dashboard_layout', JSON.stringify(defaultDashboardLayouts));
+1147:                       }
+1148:                     }}
+1149:                     className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition"
+1150:                   >
+1151:                     {lang === 'ar' ? 'إعادة ضبط' : 'Reset'}
+1152:                   </button>
+1153:                   <button
+1154:                     onClick={() => setIsDashboardEditing(!isDashboardEditing)}
+1155:                     className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${isDashboardEditing ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+1156:                   >
+1157:                     {isDashboardEditing ? (lang === 'ar' ? 'حفظ التخطيط' : 'Save Layout') : (lang === 'ar' ? 'تعديل التخطيط' : 'Edit Layout')}
+1158:                   </button>
+1159:                 </div>
+1160:               </div>
+1161: 
+1162:               <style>
+1163:                 {`
+1164:                   .dashboard-editing .react-grid-item {
+1165:                     border: 2px dashed #4f46e5 !important;
+1166:                     border-radius: 1rem;
+1167:                     background: rgba(30, 41, 59, 0.5);
+1168:                   }
+1169:                   .react-grid-item > div {
+1170:                     height: 100%;
+1171:                   }
+1172:                   .react-grid-item .react-resizable-handle {
+1173:                     opacity: 0;
+1174:                     transition: opacity 0.2s;
+1175:                   }
+1176:                   .dashboard-editing .react-grid-item:hover .react-resizable-handle {
+1177:                     opacity: 1;
+1178:                   }
+1179:                 `}
+1180:               </style>
+1181: 
+1182:               <ResponsiveGridLayout
+1183:                 className={`layout ${isDashboardEditing ? 'dashboard-editing' : ''}`}
+1184:                 layouts={dashboardLayouts}
+1185:                 breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+1186:                 cols={{ lg: 12, md: 12, sm: 12, xs: 4, xxs: 2 }}
+1187:                 rowHeight={40}
+1188:                 onLayoutChange={onLayoutChange}
+1189:                 isDraggable={isDashboardEditing}
+1190:                 isResizable={isDashboardEditing}
+1191:                 margin={[16, 16]}
+1192:                 useCSSTransforms={true}
+1193:               >
+1194: 
+1195:               {/* Branch Alerts Table */}
+1196:               {allBranchesAlerts.length > 0 ? (
+1197:                 <div key="alerts" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1198:                   <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col">
+1199:                   <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2">
+1200:                     <AlertTriangle className="h-5 w-5 text-slate-400" />
+1201:                     <h3 className="font-bold text-slate-200 text-sm">
+1202:                       {lang === 'ar' ? 'تنبيهات فروع المتجر' : 'Store Branches Alerts'}
+1203:                     </h3>
+1204:                   </div>
+1205:                   <div className="overflow-x-auto">
+1206:                     <table className="w-full text-left border-collapse">
+1207:                       <thead>
+1208:                         <tr className="bg-slate-800/50 text-xs text-slate-400 border-b border-slate-800">
+1209:                           <th className={`p-3 font-semibold ${lang === 'ar' ? 'text-right' : 'text-left'}`}>{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
+1210:                           <th className="p-3 font-semibold text-center text-red-400">{lang === 'ar' ? 'تحذير حرج (يوم أو أقل)' : 'Critical (1 day or less)'}</th>
+1211:                           <th className="p-3 font-semibold text-center text-amber-400">{lang === 'ar' ? 'تنبيه (5 أيام أو مخزون منخفض)' : 'Warning (5 days / qty <= 10)'}</th>
+1212:                         </tr>
+1213:                       </thead>
+1214:                       <tbody className="text-sm">
+1215:                         {allBranchesAlerts.map(a => (
+1216:                           <tr key={a.storeId} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+1217:                             <td className={`p-3 font-bold text-slate-200 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+1218:                               {lang === 'ar' ? a.nameAr : a.nameEn}
+1219:                             </td>
+1220:                             <td className="p-3 text-center">
+1221:                               {a.redCount > 0 ? (
+1222:                                 <span className="bg-red-500/20 text-red-500 px-3 py-1 rounded-full border border-red-500/30 font-mono font-bold animate-pulse inline-block">
+1223:                                   {a.redCount}
+1224:                                 </span>
+1225:                               ) : (
+1226:                                 <span className="text-slate-600">-</span>
+1227:                               )}
+1228:                             </td>
+1229:                             <td className="p-3 text-center">
+1230:                               {a.yellowCount > 0 ? (
+1231:                                 <span className="bg-amber-500/10 text-amber-400 px-3 py-1 rounded-full border border-amber-500/30 font-mono font-bold inline-block">
+1232:                                   {a.yellowCount}
+1233:                                 </span>
+1234:                               ) : (
+1235:                                 <span className="text-slate-600">-</span>
+1236:                               )}
+1237:                             </td>
+1238:                           </tr>
+1239:                         ))}
+1240:                       </tbody>
+1241:                     </table>
+1242:                   </div>
+1243:                   </div>
+1244:                 </div>
+1245:               ) : <div key="alerts" style={{display: 'none'}}></div>}
+1246: 
+1247:               {/* Numerical Metrics Cards */}
+1248:               {/* No grid wrapper needed */}
+1249:                 <div key="metric1" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1250:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
+1251:                   <div className="absolute right-0 top-0 h-24 w-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition"></div>
+1252:                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+1253:                     {lang === 'ar' ? 'مبيعات اليوم المحققة' : 'Today\'s Total Sales'}
+1254:                   </div>
+1255:                   <div className="mt-2 text-2xl font-bold text-white">
+1256:                     {filteredInvoices.reduce((a, c) => a + c.total, 0).toFixed(2)} <span className="text-sm text-indigo-400 font-semibold">{getTrans('currency')}</span>
+1257:                   </div>
+1258:                   <div className="mt-1 text-xs text-emerald-400 font-semibold flex items-center gap-1">
+1259:                     <TrendingUp className="h-3 w-3" />
+1260:                     <span>+12% {lang === 'ar' ? 'منذ الأمس' : 'vs yesterday'}</span>
+1261:                   </div>
+1262:                 </div>
+1263:                 </div>
+1264: 
+1265: 
+1266: 
+1267:                 <div key="metric2" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1268:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
+1269:                   <div className="absolute right-0 top-0 h-24 w-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition"></div>
+1270:                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+1271:                     {lang === 'ar' ? 'عدد فواتير المبيعات' : 'Sales Invoice Count'}
+1272:                   </div>
+1273:                   <div className="mt-2 text-2xl font-bold text-white">
+1274:                     {filteredInvoices.length} <span className="text-sm text-purple-400 font-semibold">{lang === 'ar' ? 'فاتورة' : 'bills'}</span>
+1275:                   </div>
+1276:                   <div className="mt-1 text-xs text-slate-500 font-mono">
+1277:                     {lang === 'ar' ? 'متوسط الفاتورة:' : 'Avg basket:'} {(filteredInvoices.reduce((a, c) => a + c.total, 0) / (filteredInvoices.length || 1)).toFixed(1)} {getTrans('currency')}
+1278:                   </div>
+1279:                 </div>
+1280:                 </div>
+1281: 
+1282: 
+1283: 
+1284:                 <div key="metric3" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1285:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
+1286:                   <div className="absolute right-0 top-0 h-24 w-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition"></div>
+1287:                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+1288:                     {lang === 'ar' ? 'ضريبة القيمة المضافة المحصلة' : 'Total VAT Collected (15%)'}
+1289:                   </div>
+1290:                   <div className="mt-2 text-2xl font-bold text-white">
+1291:                     {filteredInvoices.reduce((a, c) => a + c.vatAmount, 0).toFixed(2)} <span className="text-sm text-emerald-400 font-semibold">{getTrans('currency')}</span>
+1292:                   </div>
+1293:                   <div className="mt-1 text-xs text-slate-500">
+1294:                     {lang === 'ar' ? 'جاهزة للإقرار الضريبي' : 'ZATCA Compliance active'}
+1295:                   </div>
+1296:                 </div>
+1297:                 </div>
+1298: 
+1299: 
+1300: 
+1301:                 <div key="metric4" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1302:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden group h-full flex flex-col justify-center">
+1303:                   <div className="absolute right-0 top-0 h-24 w-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition"></div>
+1304:                   <div className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+1305:                     {lang === 'ar' ? 'إجمالي الأرباح الصافية (تقديري)' : 'Estimated Net Profit'}
+1306:                   </div>
+1307:                   <div className="mt-2 text-2xl font-bold text-emerald-400">
+1308:                     {reportMetrics.netProfit.toFixed(2)} <span className="text-sm font-semibold">{getTrans('currency')}</span>
+1309:                   </div>
+1310:                   <div className="mt-1 text-xs text-slate-500">
+1311:                     {lang === 'ar' ? 'بعد استقطاع التكاليف والضرائب' : 'After COGS and VAT deduction'}
+1312:                   </div>
+1313:                   </div>
+1314:                 </div>
+1315: 
+1316:               {/* Graphics & Details Section */}
+1317:               {/* No grid wrapper needed */}
+1318:                 {/* 7-Day Sales History Chart (SVG-based) */}
+1319:                 <div key="chart" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1320:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full flex flex-col">
+1321:                   <div className="flex items-center justify-between">
+1322:                     <h3 className="text-lg font-bold text-white">
+1323:                       {lang === 'ar' ? 'أداء المبيعات والأرباح (آخر 7 أيام)' : 'Sales & Profits (Last 7 Days)'}
+1324:                     </h3>
+1325:                     <div className="flex gap-2">
+1326:                       <span className="flex items-center gap-1.5 text-xs text-indigo-400 font-medium">
+1327:                         <span className="h-3 w-3 rounded bg-indigo-500 inline-block"></span>
+1328:                         {lang === 'ar' ? 'المبيعات' : 'Sales'}
+1329:                       </span>
+1330:                       <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+1331:                         <span className="h-3 w-3 rounded bg-emerald-500 inline-block"></span>
+1332:                         {lang === 'ar' ? 'الأرباح' : 'Profit'}
+1333:                       </span>
+1334:                     </div>
+1335:                   </div>
+1336: 
+1337:                   {/* SVG Chart */}
+1338:                   <div className="flex-1 w-full flex items-end justify-between gap-4 pt-6 px-2 border-b border-slate-800">
+1339:                     {salesHistory.map((item, idx) => {
+1340:                       const salesHeight = (item.sales / maxSalesVal) * 80; // max 80% height
+1341:                       const profitHeight = (item.profit / maxSalesVal) * 80;
+1342:                       return (
+1343:                         <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative group">
+1344:                           {/* Hover stats tooltips */}
+1345:                           <div className="absolute bottom-full mb-2 bg-slate-950 border border-slate-800 rounded-lg p-2 text-center text-xs hidden group-hover:block z-10 shadow-xl min-w-[100px]">
+1346:                             <div className="font-semibold text-slate-300">{item.date}</div>
+1347:                             <div className="text-indigo-400">{lang === 'ar' ? 'مبيعات:' : 'Sales:'} {item.sales}</div>
+1348:                             <div className="text-emerald-400">{lang === 'ar' ? 'أرباح:' : 'Profit:'} {item.profit}</div>
+1349:                           </div>
+1350: 
+1351:                           <div className="w-full flex items-end gap-1 justify-center h-[90%]">
+1352:                             {/* Sales Bar */}
+1353:                             <div 
+1354:                               className="w-4 sm:w-6 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t transition-all group-hover:brightness-125"
+1355:                               style={{ height: `${Math.max(4, salesHeight)}%` }}
+1356:                             ></div>
+1357:                             {/* Profit Bar */}
+1358:                             <div 
+1359:                               className="w-4 sm:w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t transition-all group-hover:brightness-125"
+1360:                               style={{ height: `${Math.max(4, profitHeight)}%` }}
+1361:                             ></div>
+1362:                           </div>
+1363:                           <span className="text-[10px] text-slate-500 font-medium mt-2 text-center overflow-ellipsis w-full truncate block whitespace-nowrap">
+1364:                             {item.date}
+1365:                           </span>
+1366:                         </div>
+1367:                       );
+1368:                     })}
+1369:                   </div>
+1370:                   </div>
+1371:                 </div>
+1372: 
+1373:                 {/* Best Selling Products */}
+1374:                 <div key="bestsellers" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1375:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full overflow-hidden flex flex-col">
+1376:                   <h3 className="text-lg font-bold text-white">
+1377:                     {lang === 'ar' ? 'المنتجات الأكثر مبيعاً' : 'Best Selling Products'}
+1378:                   </h3>
+1379:                   <div className="space-y-4">
+1380:                     {bestSellers.length === 0 ? (
+1381:                       <p className="text-sm text-slate-500 italic text-center py-8">
+1382:                         {lang === 'ar' ? 'لا توجد بيانات مبيعات كافية' : 'No sales data yet'}
+1383:                       </p>
+1384:                     ) : (
+1385:                       bestSellers.map((item, idx) => {
+1386:                         const totalBestQty = Math.max(...bestSellers.map(b => b.qty), 1);
+1387:                         const progress = (item.qty / totalBestQty) * 100;
+1388:                         return (
+1389:                           <div key={idx} className="space-y-1">
+1390:                             <div className="flex justify-between text-xs font-semibold text-slate-300">
+1391:                               <span>{item.name}</span>
+1392:                               <span className="font-mono">{item.qty} {lang === 'ar' ? 'وحدة' : 'units'}</span>
+1393:                             </div>
+1394:                             <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+1395:                               <div 
+1396:                                 className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
+1397:                                 style={{ width: `${progress}%` }}
+1398:                               ></div>
+1399:                             </div>
+1400:                           </div>
+1401:                         );
+1402:                       })
+1403:                     )}
+1404:                   </div>
+1405:                   </div>
+1406:                 </div>
+1407: 
+1408:                 {/* Branch Performance */}
+1409:               {hasAccess(['owner', 'manager']) && branchMetrics.length > 0 ? (
+1410:                 <div key="branch" className={`w-full h-full ${isDashboardEditing ? 'cursor-move' : ''}`}>
+1411:                   <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4 h-full flex flex-col">
+1412:                   <h3 className="text-lg font-bold text-white">
+1413:                     {lang === 'ar' ? 'أداء الفروع' : 'Branch Performance'}
+1414:                   </h3>
+1415:                   <div className="overflow-x-auto">
+1416:                     <table className="w-full text-right border-collapse">
+1417:                       <thead>
+1418:                         <tr className="bg-slate-950 text-slate-400 text-xs font-bold border-b border-slate-800">
+1419:                           <th className="p-3">{lang === 'ar' ? 'الفرع' : 'Branch'}</th>
+1420:                           <th className="p-3 font-mono">{lang === 'ar' ? 'المبيعات' : 'Sales'}</th>
+1421:                           <th className="p-3 font-mono">{lang === 'ar' ? 'الأرباح' : 'Profit'}</th>
+1422:                           <th className="p-3">{lang === 'ar' ? 'المنتج الأكثر مبيعاً' : 'Best Seller'}</th>
+1423:                         </tr>
+1424:                       </thead>
+1425:                       <tbody className="divide-y divide-slate-800 text-sm">
+1426:                         {branchMetrics.map((branch, idx) => (
+1427:                           <tr key={idx} className="hover:bg-slate-900/60 transition">
+1428:                             <td className="p-3 font-bold text-slate-200">{branch.name}</td>
+1429:                             <td className="p-3 font-mono font-bold text-indigo-400">{branch.sales.toFixed(2)} SAR</td>
+1430:                             <td className="p-3 font-mono font-bold text-emerald-400">{branch.profit.toFixed(2)} SAR</td>
+1431:                             <td className="p-3 text-xs text-slate-400">{branch.bestSeller}</td>
+1432:                           </tr>
+1433:                         ))}
+1434:                       </tbody>
+1435:                     </table>
+1436:                   </div>
+1437:                   </div>
+1438:                 </div>
+1439:               ) : <div key="branch" style={{display: 'none'}}></div>}
+1440:               </ResponsiveGridLayout>
+1441:             </div>
+1442:           )}
+1443: 
+1444:           {/* ========================================================
+1445:               TAB: POS SALES SCREEN
+1446:               ======================================================== */}
+1447:           {activeTab === 'pos' && (
+1448:             <div className="h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6">
+1449:               {/* POS Left Column: Shopping Cart (60% width on large screens) */}
+1450:               <div className="flex-1 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden shadow-xl">
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

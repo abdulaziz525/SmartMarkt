@@ -6,6 +6,7 @@ export async function wipeDatabase() {
     'invoice_items',
     'invoices',
     'purchase_order_items',
+    'supplier_payments',
     'purchase_orders',
     'products',
     'suppliers',
@@ -179,6 +180,8 @@ export async function runMigrations() {
       table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
       table.unique(['poNumber', 'store_id']);
       table.string('receivedBy').nullable();
+      table.decimal('paidAmount', 12, 2).notNullable().defaultTo(0);
+      table.string('paymentStatus').notNullable().defaultTo('unpaid');
     });
   } else {
     const hasReceivedBy = await db.schema.hasColumn('purchase_orders', 'receivedBy');
@@ -187,6 +190,29 @@ export async function runMigrations() {
         table.string('receivedBy').nullable();
       });
     }
+    const hasPaidAmount = await db.schema.hasColumn('purchase_orders', 'paidAmount');
+    if (!hasPaidAmount) {
+      await db.schema.alterTable('purchase_orders', table => {
+        table.decimal('paidAmount', 12, 2).notNullable().defaultTo(0);
+        table.string('paymentStatus').notNullable().defaultTo('unpaid');
+      });
+    }
+  }
+
+  // 6b. Supplier Payments table
+  const hasSupplierPayments = await db.schema.hasTable('supplier_payments');
+  if (!hasSupplierPayments) {
+    console.log('Creating supplier_payments table...');
+    await db.schema.createTable('supplier_payments', (table) => {
+      table.string('id').primary();
+      table.string('poId').notNullable().references('id').inTable('purchase_orders').onDelete('CASCADE');
+      table.string('supplierId').notNullable().references('id').inTable('suppliers').onDelete('CASCADE');
+      table.decimal('amount', 12, 2).notNullable();
+      table.string('date').notNullable();
+      table.string('cashierId').notNullable();
+      table.string('cashierName').notNullable();
+      table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
+    });
   }
 
   // 7. Purchase Order Items table (adding store_id)

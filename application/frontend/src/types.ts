@@ -66,6 +66,17 @@ export interface Supplier {
   balance: number; // positive = we owe them, negative = prepayments
 }
 
+export interface SupplierPayment {
+  id: string;
+  poId: string;
+  supplierId: string;
+  amount: number;
+  date: string;
+  cashierId: string;
+  cashierName: string;
+  store_id: string;
+}
+
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
@@ -85,6 +96,9 @@ export interface PurchaseOrder {
   receivedDate?: string;
   receivedBy?: string;
   store_id?: string;
+  paidAmount?: number;
+  paymentStatus?: 'unpaid' | 'partial' | 'paid';
+  payments?: SupplierPayment[];
 }
 
 export type UserRole = 'owner' | 'manager' | 'cashier';

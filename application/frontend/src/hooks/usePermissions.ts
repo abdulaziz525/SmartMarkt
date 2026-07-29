@@ -19,7 +19,6 @@ export const usePermissions = (user: User | null) => {
   const role = user.role;
   const isOwner = role === 'owner';
   const isManager = role === 'manager';
-  const isCashier = role === 'cashier';
 
   const checkPerm = (key: string, defaultVal: boolean) => {
     if (isOwner) return true;

@@ -39,7 +39,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       } else {
         localStorage.removeItem('activeStoreId');
       }
-      await apiService.logAudit('LOGIN', `User ${loginIdentifier} logged in to the system.`, user.store_id || undefined);
+      await apiService.logAudit('LOGIN', `User ${loginIdentifier} logged in to the system.`);
       onLogin();
     } catch (err: any) {
       setError(err.message || ar.defaultError);

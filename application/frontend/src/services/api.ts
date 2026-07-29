@@ -230,6 +230,10 @@ export const apiService = {
     return post<{ success: boolean }>(`/purchase-orders/${id}/receive`, {});
   },
 
+  payPurchaseOrder(id: string, amount: number): Promise<{ success: boolean }> {
+    return post<{ success: boolean }>(`/purchase-orders/${id}/pay`, { amount });
+  },
+
   // ── Audit Logs ───────────────────────────────────────────────────
   getAuditLogs(storeId?: string): Promise<AuditLog[]> {
     return get<AuditLog[]>('/audit-logs', storeId);
