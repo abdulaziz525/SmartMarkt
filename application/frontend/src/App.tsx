@@ -553,12 +553,7 @@ export default function App() {
     await refreshData();
   };
 
-  const handleSupplierDelete = async (id: string) => {
-    if (confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذا المورد؟' : 'Are you sure you want to delete this supplier?')) {
-      await apiService.deleteSupplier(id);
-      await refreshData();
-    }
-  };
+
 
 
 
@@ -2030,78 +2025,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Suppliers List Area */}
-              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-white">{lang === 'ar' ? 'قائمة مستحقات الموردين' : 'Supplier Payables'}</h3>
-                    <p className="text-xs text-slate-400">{lang === 'ar' ? 'إدارة حسابات الدفع الآجلة للشركات الموردة للمخازن' : 'Manage supplier futures list and balances payable'}</p>
-                  </div>
-                  {currentUser?.role !== 'cashier' && (
-                    <button
-                      onClick={() => {
-                        setEditingSupplier(null);
-                        setIsSupplierModalOpen(true);
-                      }}
-                      className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded-lg font-bold transition shadow"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>{lang === 'ar' ? 'إضافة مورد' : 'New Supplier'}</span>
-                    </button>
-                  )}
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {suppliers.map((s, idx) => (
-                    <div key={idx} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-4">
-                      <div>
-                        <h4 className="font-bold text-slate-200 text-sm">{s.name}</h4>
-                        <div className="text-xs text-slate-500 font-mono mt-1">{s.phone} | {s.email}</div>
-                        {s.vatNumber && (
-                          <div className="text-[10px] text-slate-500 font-mono">VAT: {s.vatNumber}</div>
-                        )}
-                      </div>
-                      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-semibold">{lang === 'ar' ? 'الحساب المستحق للمورد:' : 'Accounts Payable:'}</div>
-                          <div className={`font-mono text-sm font-bold ${s.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                            {s.balance.toFixed(2)} SAR
-                          </div>
-                        </div>
-                        <div className="flex gap-1.5">
-                          {s.balance > 0 && (
-                            <button
-                              onClick={() => setActiveSupplierForPayment(s)}
-                              className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded px-2.5 py-1 font-bold transition"
-                            >
-                              {lang === 'ar' ? 'سداد الفواتير' : 'Pay Invoices'}
-                            </button>
-                          )}
-                          {currentUser?.role !== 'cashier' && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setEditingSupplier(s);
-                                  setIsSupplierModalOpen(true);
-                                }}
-                                className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 rounded p-1 transition"
-                              >
-                                <Edit3 className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleSupplierDelete(s.id)}
-                                className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded p-1 transition"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 

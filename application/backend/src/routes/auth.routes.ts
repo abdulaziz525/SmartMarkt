@@ -2,8 +2,41 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '../config/db.js';
+import nodemailer from 'nodemailer';
 
 const router = Router();
+let transporter: nodemailer.Transporter | null = null;
+
+const initTransporter = async () => {
+  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  } else {
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: "smtp.ethereal.email",
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+      console.log('Nodemailer test account created for email verification.');
+    } catch (err) {
+      console.error('Failed to create Nodemailer test account', err);
+    }
+  }
+};
+initTransporter();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_for_dev';
 
 router.get('/auth/status', async (req, res) => {
@@ -140,6 +173,117 @@ router.post('/auth/setup', async (req, res) => {
       address: req.body.address
     };
     await performSignup(req, res, payload);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+const verificationCodes = new Map<string, string>();
+
+router.post('/auth/send-verification-code', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    
+    // Generate 4-digit code
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    verificationCodes.set(email, code);
+    
+    // Log it as well
+    console.log(`[Email Verification] Sent code ${code} to ${email}`);
+
+    if (transporter) {
+      const info = await transporter.sendMail({
+        from: process.env.SMTP_FROM || '"SmartMarkt" <noreply@smartmarkt.com>',
+        to: email,
+        subject: "Verification Code - SmartMarkt",
+        text: `Your verification code is: ${code}`,
+        html: `<b>Your verification code is: ${code}</b>`,
+      });
+
+      console.log("Message sent: %s", info.messageId);
+      // In development with Ethereal, log the preview URL
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) {
+        console.log("Preview URL: %s", previewUrl);
+      }
+    } else {
+      console.log("Nodemailer not initialized, skipping real email send.");
+    }
+    
+    res.json({ message: 'Verification code sent successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/auth/verify-code', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ error: 'Email and code are required' });
+    
+    const savedCode = verificationCodes.get(email);
+    if (!savedCode || savedCode !== code) {
+      return res.status(400).json({ error: 'Invalid or expired verification code' });
+    }
+    
+    // Clear code after successful verification
+    verificationCodes.delete(email);
+    res.json({ message: 'Email verified successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+router.post('/auth/wathq-verify', async (req, res) => {
+  try {
+    const { crNumber } = req.body;
+    if (!crNumber) return res.status(400).json({ error: 'CR Number / Tax Number is required' });
+    
+    // Typically the apiKey would come from env vars
+    const apiKey = process.env.WATHQ_API_KEY || 'sandbox_key';
+    
+    try {
+      const response = await fetch(`https://api.wathq.sa/sandbox/commercial-registration/info/${crNumber}`, {
+        headers: {
+          'Authorization': apiKey,
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const err: any = new Error(response.statusText);
+        err.response = { status: response.status, data: errorData };
+        throw err;
+      }
+      
+      const data = await response.json();
+      res.json({ valid: true, data: data });
+    } catch (apiError: any) {
+      // If it's a 401 or 403 (unauthorized/forbidden) due to missing real API key, we mock success for development purposes
+      if (apiError.response && (apiError.response.status === 401 || apiError.response.status === 403)) {
+        console.warn('Wathq API Key is invalid or missing, mocking success response for CR:', crNumber);
+        return res.json({
+          valid: true,
+          data: {
+            crNumber: crNumber,
+            name: "مؤسسة تجريبية (Mock)",
+            status: { id: 1, name: "فعال" }
+          },
+          mocked: true
+        });
+      }
+      
+      if (apiError.response && apiError.response.status === 404) {
+        return res.status(400).json({ error: 'Invalid CR Number / Tax Number: Not found in Wathq' });
+      }
+      
+      throw apiError;
+    }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

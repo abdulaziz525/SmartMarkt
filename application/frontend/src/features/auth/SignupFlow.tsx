@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { apiService } from '../../services/api';
-import { AlertTriangle, Loader2, ArrowRight, ArrowLeft, User, Store } from 'lucide-react';
+import { AlertTriangle, Loader2, ArrowRight, ArrowLeft, User, Store, MailCheck, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const ar = {
@@ -15,7 +15,7 @@ const ar = {
   confirmPassword: 'تأكيد كلمة السر',
   organizationName: 'اسم المؤسسة',
   storeName: 'اسم الفرع/المتجر',
-  vatNumber: 'الرقم الضريبي',
+  vatNumber: 'الرقم الضريبي أو السجل التجاري',
   phone: 'رقم الجوال',
   address: 'العنوان',
   next: 'التالي',
@@ -23,10 +23,16 @@ const ar = {
   submit: 'إنشاء الحساب',
   loginPrompt: 'لديك حساب بالفعل؟',
   loginLink: 'تسجيل الدخول',
-  loading: 'جارٍ إنشاء الحساب...',
+  loading: 'جارٍ العمل...',
   passwordsMismatch: 'كلمات المرور غير متطابقة',
   invalidEmail: 'صيغة البريد الإلكتروني غير صحيحة',
-  requiredFields: 'الرجاء تعبئة جميع الحقول المطلوبة'
+  requiredFields: 'الرجاء تعبئة جميع الحقول المطلوبة',
+  verifyEmailTitle: 'التحقق من البريد الإلكتروني',
+  verifyEmailSub: 'أدخل رمز التحقق المرسل إلى بريدك الإلكتروني',
+  verificationCode: 'رمز التحقق',
+  verifyAndContinue: 'تحقق وتابع',
+  invalidCr: 'رقم السجل التجاري / الرقم الضريبي غير صحيح أو غير مسجل',
+  verifyingCr: 'جاري التحقق من الرقم عبر واثق...'
 };
 
 export const SignupFlow: React.FC = () => {
@@ -44,7 +50,8 @@ export const SignupFlow: React.FC = () => {
     storeName: '',
     vatNumber: '',
     phone: '',
-    address: ''
+    address: '',
+    verificationCode: ''
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,14 +84,57 @@ export const SignupFlow: React.FC = () => {
     return true;
   };
 
-  const handleNext = () => {
-    if (validateStep1()) {
+  const handleNextToVerification = async () => {
+    if (!validateStep1()) return;
+    
+    setIsLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/send-verification-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email })
+      });
+      if (!res.ok) {
+         const data = await res.json();
+         throw new Error(data.error || 'Failed to send code');
+      }
+      setStep(1.5);
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ في إرسال الرمز');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!formData.verificationCode) {
+      setError(ar.requiredFields);
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, code: formData.verificationCode })
+      });
+      if (!res.ok) {
+         const data = await res.json();
+         throw new Error(data.error || 'Invalid code');
+      }
       setStep(2);
+    } catch (err: any) {
+      setError(err.message || 'رمز التحقق غير صحيح');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleBack = () => {
-    setStep(1);
+    if (step === 1.5) setStep(1);
+    else if (step === 2) setStep(1.5);
     setError('');
   };
 
@@ -94,7 +144,26 @@ export const SignupFlow: React.FC = () => {
 
     setIsLoading(true);
     setError('');
+    
+    // Step 2.1: Verify via Wathq
     try {
+      const wathqRes = await fetch('/api/auth/wathq-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crNumber: formData.vatNumber })
+      });
+      
+      if (!wathqRes.ok) {
+        throw new Error(ar.invalidCr);
+      }
+      
+      const wathqData = await wathqRes.json();
+      
+      if (!wathqData.valid) {
+        throw new Error(ar.invalidCr);
+      }
+      
+      // Verification passed, create account
       await apiService.signup({
         fullName: formData.fullName,
         username: formData.username,
@@ -106,7 +175,6 @@ export const SignupFlow: React.FC = () => {
         phone: formData.phone,
         address: formData.address
       });
-      // The signup endpoint sets the token cookie. Redirect to main dashboard.
       window.location.href = '/';
     } catch (err: any) {
       setError(err.message || 'حدث خطأ أثناء التسجيل');
@@ -131,22 +199,24 @@ export const SignupFlow: React.FC = () => {
         <div className="w-full bg-slate-900/80 border border-slate-800 backdrop-blur-sm rounded-2xl p-8 shadow-xl">
           {/* Stepper Header */}
           <div className="flex items-center justify-between mb-8" dir="rtl">
-            <div className={`flex items-center gap-2 ${step === 1 ? 'text-indigo-400' : 'text-slate-500'}`}>
-              <div className={`flex items-center justify-center h-8 w-8 rounded-full border-2 ${step === 1 ? 'border-indigo-400 bg-indigo-400/10' : 'border-slate-500'}`}>
-                <User className="h-4 w-4" />
+            <div className={`flex flex-col items-center gap-2 ${step === 1 || step === 1.5 ? 'text-indigo-400' : (step > 1.5 ? 'text-emerald-400' : 'text-slate-500')}`}>
+              <div className={`flex items-center justify-center h-8 w-8 rounded-full border-2 ${step === 1 ? 'border-indigo-400 bg-indigo-400/10' : (step > 1 ? 'border-emerald-400 bg-emerald-400/10' : 'border-slate-500')}`}>
+                {step > 1 ? <CheckCircle2 className="h-4 w-4" /> : <User className="h-4 w-4" />}
               </div>
-              <span className="text-sm font-semibold">{ar.step1Title}</span>
+              <span className="text-xs font-semibold">{ar.step1Title}</span>
             </div>
-            <div className="flex-1 h-px bg-slate-800 mx-4"></div>
-            <div className={`flex items-center gap-2 ${step === 2 ? 'text-indigo-400' : 'text-slate-500'}`}>
+            
+            <div className={`flex-1 h-px mx-4 ${step > 1 ? 'bg-emerald-400/50' : 'bg-slate-800'}`}></div>
+            
+            <div className={`flex flex-col items-center gap-2 ${step === 2 ? 'text-indigo-400' : 'text-slate-500'}`}>
               <div className={`flex items-center justify-center h-8 w-8 rounded-full border-2 ${step === 2 ? 'border-indigo-400 bg-indigo-400/10' : 'border-slate-500'}`}>
                 <Store className="h-4 w-4" />
               </div>
-              <span className="text-sm font-semibold">{ar.step2Title}</span>
+              <span className="text-xs font-semibold">{ar.step2Title}</span>
             </div>
           </div>
 
-          <form onSubmit={step === 2 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); }}>
             {step === 1 && (
               <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                 <div className="space-y-2 text-right" dir="rtl">
@@ -170,6 +240,32 @@ export const SignupFlow: React.FC = () => {
                     <label className="block text-sm font-semibold text-slate-300">{ar.password}</label>
                     <input type="password" name="password" value={formData.password} onChange={handleChange} required className="w-full bg-slate-950 border border-slate-800 text-white px-4 py-3 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-left" dir="ltr" />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {step === 1.5 && (
+              <div className="space-y-6 py-4 animate-in zoom-in-95 duration-300 flex flex-col items-center text-center">
+                <div className="h-16 w-16 bg-indigo-500/10 rounded-full flex items-center justify-center mb-2">
+                  <MailCheck className="h-8 w-8 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2" dir="rtl">{ar.verifyEmailTitle}</h3>
+                  <p className="text-sm text-slate-400" dir="rtl">{ar.verifyEmailSub}<br/><span className="text-white font-mono mt-1 block">{formData.email}</span></p>
+                </div>
+                
+                <div className="w-full space-y-2">
+                  <input 
+                    type="text" 
+                    name="verificationCode" 
+                    value={formData.verificationCode} 
+                    onChange={handleChange} 
+                    placeholder="XXXX"
+                    required 
+                    maxLength={4}
+                    className="w-full max-w-[200px] mx-auto text-center bg-slate-950 border border-slate-800 text-white px-4 py-3 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-2xl font-mono tracking-[0.5em]" 
+                    dir="ltr" 
+                  />
                 </div>
               </div>
             )}
@@ -207,14 +303,28 @@ export const SignupFlow: React.FC = () => {
             )}
 
             <div className="mt-8 flex gap-4 flex-row-reverse">
-              {step === 1 ? (
-                <button type="button" onClick={handleNext} className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
-                  <span>{ar.next}</span>
-                  <ArrowLeft className="h-5 w-5" />
+              {step === 1 && (
+                <button type="button" onClick={handleNextToVerification} disabled={isLoading} className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-70">
+                  {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <span>{ar.next}</span>}
+                  {!isLoading && <ArrowLeft className="h-5 w-5" />}
                 </button>
-              ) : (
+              )}
+              
+              {step === 1.5 && (
                 <>
-                  <button type="submit" disabled={isLoading} className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20">
+                  <button type="button" onClick={handleVerifyCode} disabled={isLoading} className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-70">
+                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <span>{ar.verifyAndContinue}</span>}
+                  </button>
+                  <button type="button" onClick={handleBack} disabled={isLoading} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
+                    <ArrowRight className="h-5 w-5" />
+                    <span>{ar.back}</span>
+                  </button>
+                </>
+              )}
+
+              {step === 2 && (
+                <>
+                  <button type="button" onClick={handleSubmit} disabled={isLoading} className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20">
                     {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <span>{ar.submit}</span>}
                   </button>
                   <button type="button" onClick={handleBack} disabled={isLoading} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
