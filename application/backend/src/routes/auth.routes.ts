@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '../config/db.js';
 import nodemailer from 'nodemailer';
+import { JWT_SECRET } from '../config/jwt.js';
 
 const router = Router();
 let transporter: nodemailer.Transporter | null = null;
@@ -37,7 +38,6 @@ const initTransporter = async () => {
   }
 };
 initTransporter();
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_for_dev';
 
 router.get('/auth/status', async (req, res) => {
   try {

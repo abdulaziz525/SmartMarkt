@@ -16,8 +16,7 @@ export const Storefront: React.FC = () => {
   
   // Auth state
   const [isCustomerAuth, setIsCustomerAuth] = useState(false);
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  
+
   // Checkout modal
   const [showCheckout, setShowCheckout] = useState(false);
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
@@ -77,13 +76,13 @@ export const Storefront: React.FC = () => {
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
       setIsCustomerAuth(true);
-      setCustomerId(data.customer?.id || data.customerId);
       setShowCheckout(true);
     } catch (err: any) {
       setError(err.message);
@@ -96,14 +95,13 @@ export const Storefront: React.FC = () => {
       const res = await fetch(`${API_BASE}/storefront/${storeId}/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          customerId,
           paymentMethod,
           fulfillmentMode: fulfillment,
           items: cart.map(item => ({
             productId: item.product.id,
-            quantity: item.quantity,
-            price: item.product.sellingPrice
+            quantity: item.quantity
           }))
         })
       });

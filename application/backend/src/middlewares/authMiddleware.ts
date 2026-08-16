@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_for_dev';
+import { JWT_SECRET } from '../config/jwt.js';
 
 export const tokenBlacklist = new Set<string>();
 
