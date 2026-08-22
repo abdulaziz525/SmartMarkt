@@ -1,11 +1,14 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { runMigrations, resetDatabase, wipeDatabase } from './models/migrations.js';
 import { authMiddleware, tokenBlacklist } from './middlewares/authMiddleware.js';
 import { storeContextMiddleware } from './middlewares/storeContextMiddleware.js';
 import { checkPermissionMiddleware } from './middlewares/checkPermissionMiddleware.js';
+import { requestIdMiddleware } from './middlewares/requestId.js';
 import authRoutes from './routes/auth.routes.js';
 import statusController from './controllers/statusController.js';
 import storeController from './controllers/storeController.js';
@@ -23,12 +26,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// CORS_ORIGIN is a comma-separated whitelist (e.g. "https://smartmarkt.com,https://www.smartmarkt.com").
+// Falls back to reflecting the request origin outside production so local dev keeps working.
+const corsOrigins = process.env.CORS_ORIGIN?.split(',').map(o => o.trim()).filter(Boolean);
 app.use(cors({
-  origin: true,
+  origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : (process.env.NODE_ENV === 'production' ? false : true),
   credentials: true
 }));
+app.use(helmet());
+app.use(requestIdMiddleware);
 app.use(express.json());
 app.use(cookieParser());
+
+// Rate limit login attempts to slow down credential-stuffing/brute-force attacks.
+// Disabled under NODE_ENV=test so e2e suites (many logins from one IP) aren't throttled.
+if (process.env.NODE_ENV !== 'test') {
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many login attempts, please try again later.' },
+  });
+  app.use('/api/auth/login', loginLimiter);
+}
 
 // API Routes
 app.use('/api/storefront', storefrontController);

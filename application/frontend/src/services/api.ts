@@ -15,7 +15,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-async function request<T>(path: string, options?: RequestInit & { storeId?: string }): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { storeId?: string }, isRetry = false): Promise<T> {
   const url = `${API_BASE}${path}`;
 
   // Inject the active store context header for multi-tenancy.
@@ -29,6 +29,18 @@ async function request<T>(path: string, options?: RequestInit & { storeId?: stri
     // Merge caller-supplied headers on top, but keep our injected ones as defaults
     ...(options?.headers ? { headers: { 'Content-Type': 'application/json', ...extraHeaders, ...(options.headers as object) } } : {}),
   });
+
+  // The access token cookie is short-lived; on a 401 (outside the auth routes
+  // themselves) try a silent refresh once and replay the original request.
+  if (res.status === 401 && !isRetry && !path.startsWith('/auth/')) {
+    const refreshed = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
+      .then(r => r.ok)
+      .catch(() => false);
+    if (refreshed) {
+      return request<T>(path, options, true);
+    }
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `API request failed: ${res.status}`);

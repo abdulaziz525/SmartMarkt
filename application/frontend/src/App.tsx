@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Storefront } from './features/storefront/Storefront';
 import { SignupFlow } from './features/auth/SignupFlow';
 import {
@@ -54,7 +55,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pos' | 'inventory' | 'suppliers' | 'reports' | 'audit' | 'settings'>('dashboard');
   
   // Core DB-backed state
-  const [products, setProducts] = useState<Product[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -66,6 +66,16 @@ export default function App() {
   const [usersList, setUsersList] = useState<AppUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Products are cached/refetched through React Query instead of a plain fetch-on-mount,
+  // so switching tabs doesn't have to re-request data that's still fresh.
+  const { data: products = [], refetch: refetchProducts } = useQuery<Product[]>({
+    queryKey: ['products', activeStoreId],
+    queryFn: () => apiService.getProducts(),
+    // Wait for the store context (x-store-id) to be resolved by fetchStores() first,
+    // otherwise this fires before activeStoreId is set and the backend 400s.
+    enabled: isAuthenticated && !!activeStoreId,
+  });
 
   // Settings sub-tab
   const [settingsTab, setSettingsTab] = useState<'store' | 'branches' | 'employees' | 'customers'>('store');
@@ -136,8 +146,7 @@ export default function App() {
         try { return await promise; } catch { return fallback; }
       };
 
-      const [productsData, invoicesData, suppliersData, posData, logsData, storeData, usersData, branchesData, customersData] = await Promise.all([
-        safeFetch(apiService.getProducts(), []),
+      const [invoicesData, suppliersData, posData, logsData, storeData, usersData, branchesData, customersData] = await Promise.all([
         safeFetch(apiService.getInvoices(), []),
         safeFetch(apiService.getSuppliers(), []),
         safeFetch(apiService.getPurchaseOrders(), []),
@@ -146,8 +155,8 @@ export default function App() {
         safeFetch(apiService.getUsers(), []),
         safeFetch(apiService.getBranches(), []),
         safeFetch(apiService.getCustomers(), []),
+        refetchProducts(),
       ]);
-      setProducts(productsData);
       setInvoices(invoicesData);
       setSuppliers(suppliersData);
       setPurchaseOrders(posData);

@@ -1,9 +1,24 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { db } from '../config/db.js';
 import { logAudit } from '../services/audit.js';
 import { generateZatcaBase64 } from '../services/zatca.js';
 
 const router = Router();
+
+const createInvoiceSchema = z.object({
+  items: z.array(z.object({
+    product: z.object({ id: z.string(), nameAr: z.string(), nameEn: z.string(), sellingPrice: z.number() }).passthrough(),
+    quantity: z.number().positive(),
+    discount: z.number().min(0).max(100),
+    customPrice: z.number().nonnegative().optional(),
+  })).min(1, 'Invoice must contain at least one item'),
+  paymentMethod: z.enum(['cash', 'card', 'split', 'installments', 'deferred']),
+  paymentDetails: z.object({
+    cashAmount: z.number().nonnegative().optional(),
+    cardAmount: z.number().nonnegative().optional(),
+  }),
+});
 
 router.get('/invoices', async (req, res) => {
   try {
@@ -49,11 +64,11 @@ router.get('/invoices', async (req, res) => {
 
 router.post('/invoices', async (req, res) => {
   try {
-    const { items, paymentMethod, paymentDetails } = req.body;
-    
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'Invoice must contain at least one item' });
+    const parsed = createInvoiceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid invoice payload', details: parsed.error.flatten() });
     }
+    const { items, paymentMethod, paymentDetails } = parsed.data;
 
     const store = await db('stores').where({ id: req.storeId }).first();
     if (!store) {
@@ -147,6 +162,15 @@ router.post('/invoices', async (req, res) => {
       };
 
       await trx('invoices').insert(invoiceData);
+
+      // ZATCA compliance trail: record that a QR/TLV payload was generated for this invoice.
+      await trx('invoice_audit_log').insert({
+        invoice_id: invId,
+        sent_at: timestamp,
+        status: 'QR_GENERATED',
+        response: null,
+        store_id: req.storeId
+      });
 
       const itemRows = invoiceItems.map((item: any) => ({
         invoiceId: invId,

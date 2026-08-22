@@ -1,11 +1,70 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { db } from '../config/db.js';
 import nodemailer from 'nodemailer';
-import { JWT_SECRET } from '../config/jwt.js';
+import { JWT_SECRET, ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS } from '../config/jwt.js';
+import { tokenBlacklist } from '../middlewares/authMiddleware.js';
 
 const router = Router();
+
+const signupPayloadSchema = z.object({
+  fullName: z.string().min(1),
+  username: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6),
+  confirmPassword: z.string().optional(),
+  organizationName: z.string().min(1),
+  storeName: z.string().min(1),
+  vatNumber: z.string().min(1),
+  phone: z.string().min(1),
+  address: z.string().min(1),
+});
+
+const loginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+const registerSchema = z.object({
+  username: z.string().optional(),
+  email: z.string().email().optional(),
+  id: z.string().optional(),
+  password: z.string().min(6),
+  organization_id: z.string().optional(),
+  store_id: z.string().optional(),
+}).refine(data => !!(data.username || data.email), { message: 'username or email is required' });
+
+// Issues a short-lived access token (`token` cookie) plus a longer-lived, DB-backed
+// refresh token (`refreshToken` cookie, scoped to /api/auth) used to silently mint
+// new access tokens via POST /auth/refresh without keeping a long-lived JWT alive.
+async function issueTokens(res: any, payload: object, userId: string) {
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL_SECONDS });
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: ACCESS_TOKEN_TTL_SECONDS * 1000
+  });
+
+  const refreshToken = randomUUID();
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
+  await db('refresh_tokens').insert({
+    id: `rt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    token: refreshToken,
+    user_id: userId,
+    expires_at: expiresAt
+  });
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: REFRESH_TOKEN_TTL_SECONDS * 1000,
+    path: '/api/auth'
+  });
+}
 let transporter: nodemailer.Transporter | null = null;
 
 const initTransporter = async () => {
@@ -50,13 +109,13 @@ router.get('/auth/status', async (req, res) => {
 });
 
 async function performSignup(req: any, res: any, payload: any) {
-  const { fullName, username, email, password, organizationName, storeName, vatNumber, phone, address } = payload;
-
-  if (!fullName || !username || !email || !password || !organizationName || !storeName || !vatNumber || !phone || !address) {
-    return res.status(400).json({ error: 'All fields are required' });
+  const parsed = signupPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid signup payload', details: parsed.error.flatten() });
   }
+  const { fullName, username, email, password, organizationName, storeName, vatNumber, phone, address } = parsed.data;
 
-  if (payload.confirmPassword && password !== payload.confirmPassword) {
+  if (parsed.data.confirmPassword && password !== parsed.data.confirmPassword) {
     return res.status(400).json({ error: 'Passwords do not match' });
   }
 
@@ -132,23 +191,13 @@ async function performSignup(req: any, res: any, payload: any) {
     });
   });
 
-  const token = jwt.sign(
-    {
-      id: userId,
-      role: 'owner',
-      nameAr: fullName,
-      organization_id: orgId,
-      store_id: storeId
-    },
-    JWT_SECRET,
-    { expiresIn: '24h' }
-  );
-
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000
-  });
+  await issueTokens(res, {
+    id: userId,
+    role: 'owner',
+    nameAr: fullName,
+    organization_id: orgId,
+    store_id: storeId
+  }, userId);
 
   res.status(201).json({
     id: userId,
@@ -299,7 +348,11 @@ router.post('/auth/signup', async (req, res) => {
 
 router.post('/auth/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid login payload', details: parsed.error.flatten() });
+    }
+    const { username, password } = parsed.data;
 
     const user = await db('users').where({ username }).first();
     if (!user) {
@@ -311,23 +364,13 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        nameAr: user.nameAr,
-        organization_id: user.organization_id,
-        store_id: user.store_id
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000
-    });
+    await issueTokens(res, {
+      id: user.id,
+      role: user.role,
+      nameAr: user.nameAr,
+      organization_id: user.organization_id,
+      store_id: user.store_id
+    }, user.id);
 
     const { password: _, ...userData } = user;
     res.json(userData);
@@ -336,15 +379,57 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
-import { tokenBlacklist } from '../middlewares/authMiddleware.js';
+router.post('/auth/refresh', async (req, res) => {
+  try {
+    const refreshToken = req.cookies?.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'No refresh token provided' });
+    }
 
-router.post('/auth/logout', (req, res) => {
-  const token = req.cookies?.token;
-  if (token) {
-    tokenBlacklist.add(token);
+    const stored = await db('refresh_tokens').where({ token: refreshToken }).first();
+    if (stored) {
+      // Rotate: the refresh token is single-use, whether or not it turns out to be expired.
+      await db('refresh_tokens').where({ id: stored.id }).del();
+    }
+    if (!stored || new Date(stored.expires_at) < new Date()) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+
+    const user = await db('users').where({ id: stored.user_id }).first();
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    await issueTokens(res, {
+      id: user.id,
+      role: user.role,
+      nameAr: user.nameAr,
+      organization_id: user.organization_id,
+      store_id: user.store_id
+    }, user.id);
+
+    res.status(200).json({ message: 'Token refreshed' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-  res.clearCookie('token');
-  res.status(200).json({ message: 'Logged out successfully' });
+});
+
+router.post('/auth/logout', async (req, res) => {
+  try {
+    const token = req.cookies?.token;
+    if (token) {
+      await tokenBlacklist.add(token);
+    }
+    const refreshToken = req.cookies?.refreshToken;
+    if (refreshToken) {
+      await db('refresh_tokens').where({ token: refreshToken }).del();
+    }
+    res.clearCookie('token');
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    res.status(200).json({ message: 'Logged out successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 router.get('/auth/verify', async (req, res) => {
@@ -368,7 +453,11 @@ router.get('/auth/verify', async (req, res) => {
 
 router.post('/auth/register', async (req, res) => {
   try {
-    const { username, email, id, password, organization_id, store_id } = req.body;
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid registration payload', details: parsed.error.flatten() });
+    }
+    const { username, email, id, password, organization_id, store_id } = parsed.data;
     const actualUsername = email || username;
 
     const existingUser = await db('users').where({ username: actualUsername }).first();
@@ -409,23 +498,13 @@ router.post('/auth/register', async (req, res) => {
 
     await db('users').insert(newUser);
 
-    const token = jwt.sign(
-      {
-        id: newUser.id,
-        role: newUser.role,
-        nameAr: newUser.nameAr,
-        organization_id: newUser.organization_id,
-        store_id: newUser.store_id
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000
-    });
+    await issueTokens(res, {
+      id: newUser.id,
+      role: newUser.role,
+      nameAr: newUser.nameAr,
+      organization_id: newUser.organization_id,
+      store_id: newUser.store_id
+    }, newUser.id);
 
     const { password: _, ...userData } = newUser;
     res.status(201).json(userData);

@@ -3,6 +3,8 @@ import { db, dbType } from '../config/db.js';
 export async function wipeDatabase() {
   console.log('Wiping database...');
   const tables = [
+    'invoice_audit_log',
+    'refresh_tokens',
     'invoice_items',
     'invoices',
     'purchase_order_items',
@@ -360,6 +362,33 @@ export async function runMigrations() {
     console.log('Adding is_website_enabled to stores table...');
     await db.schema.alterTable('stores', (table) => {
       table.boolean('is_website_enabled').notNullable().defaultTo(true);
+    });
+  }
+
+  // 14. Refresh Tokens table — backs the short-lived access token / refresh token pair
+  const hasRefreshTokens = await db.schema.hasTable('refresh_tokens');
+  if (!hasRefreshTokens) {
+    console.log('Creating refresh_tokens table...');
+    await db.schema.createTable('refresh_tokens', (table) => {
+      table.string('id').primary();
+      table.string('token').unique().notNullable();
+      table.string('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      table.timestamp('expires_at').notNullable();
+      table.timestamp('createdAt').defaultTo(db.fn.now());
+    });
+  }
+
+  // 15. ZATCA Invoice Audit Log table — tracks every submission attempt for an invoice
+  const hasInvoiceAuditLog = await db.schema.hasTable('invoice_audit_log');
+  if (!hasInvoiceAuditLog) {
+    console.log('Creating invoice_audit_log table...');
+    await db.schema.createTable('invoice_audit_log', (table) => {
+      table.increments('id').primary();
+      table.string('invoice_id').notNullable().references('id').inTable('invoices').onDelete('CASCADE');
+      table.timestamp('sent_at').notNullable();
+      table.string('status').notNullable();
+      table.text('response').nullable();
+      table.string('store_id').notNullable().references('id').inTable('stores').onDelete('CASCADE');
     });
   }
 
